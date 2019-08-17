@@ -26,6 +26,17 @@
 ;;;;;;;;;; Transitions
 
 
+(defn remove-on-complete
+
+  ""
+
+  [_state]
+
+  nil)
+
+
+
+
 (defn remove-transition
 
   ""

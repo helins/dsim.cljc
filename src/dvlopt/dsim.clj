@@ -69,7 +69,8 @@
      (fn compute-value [state step]
        (if (>= step
                start)
-         (if (<= step end)
+         (if (<= step
+                 end)
            (on-step state
                     (/ (- step
                           start)
@@ -80,8 +81,6 @@
                (on-complete state')
                state')))
          state)))))
-
-
 
 
 
@@ -120,7 +119,7 @@
   [state step]
 
   (reduce-kv (fn next-state [state' _attribute transition]
-               (let [state'2 (transition state
+               (let [state'2 (transition state'
                                          step)]
                  (if (nil? state'2)
                    (reduced nil)

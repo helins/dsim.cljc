@@ -10,7 +10,8 @@
             [clojure.test.check.properties   :as tprop]
             [clojure.test                    :as t]
             [criterium.core                  :as ct]
-            [dvlopt.dsim                     :as D]))
+            [dvlopt.dsim                     :as dsim]
+            [dvlopt.dsim-test                :as dsim-test]))
 
 
 

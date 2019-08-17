@@ -30,16 +30,16 @@
 
   ""
 
-  [state attribute]
+  [state tag]
 
-  (let [attribute->transition (dissoc (::attribute->transition state)
-                                      attribute)]
-    (if (empty? attribute->transition)
+  (let [tag->transition (dissoc (::tag->transition state)
+                                tag)]
+    (if (empty? tag->transition)
       (dissoc state
-              ::attribute->transition)
+              ::tag->transition)
       (assoc state
-             ::attribute->transition
-             attribute->transition))))
+             ::tag->transition
+             tag->transition))))
 
 
 
@@ -48,22 +48,22 @@
 
   ""
 
-  ([attribute start n-steps on-step]
+  ([tag start n-steps on-step]
 
-   (transition attribute
+   (transition tag
                start
                n-steps
                on-step
                nil))
 
 
-  ([attribute start n-steps on-step on-complete]
+  ([tag start n-steps on-step on-complete]
 
    (let [end   (+ start
                   (dec n-steps))
          delta (- end
                   start)]
-     (fn compute-value [state step]
+     (fn state-at-step [state step]
        (if (>= step
                start)
          (if (<= step
@@ -73,7 +73,7 @@
                           start)
                        delta))
            (let [state' (remove-transition state
-                                           attribute)]
+                                           tag)]
              (if on-complete
                (on-complete state')
                state')))
@@ -86,21 +86,21 @@
 
   ""
 
-  ([entity attribute start n-steps on-step]
+  ([entity tag start n-steps on-step]
 
    (add-transition entity
-                   attribute
+                   tag
                    start
                    n-steps
                    on-step
                    nil))
 
-  ([entity attribute start n-steps on-step on-complete]
+  ([entity tag start n-steps on-step on-complete]
 
    (assoc-in entity
-             [::attribute->transition
-              attribute]
-             (transition attribute
+             [::tag->transition
+              tag]
+             (transition tag
                          start
                          n-steps
                          on-step
@@ -109,33 +109,33 @@
 
 
 
-(defn advance
+(defn move
 
   ""
 
   [state step]
 
-  (reduce-kv (fn next-state [state' _attribute transition]
+  (reduce-kv (fn apply-transition [state' _tag transition]
                (let [state'2 (transition state'
                                          step)]
                  (if (nil? state'2)
                    (reduced nil)
                    state'2)))
              state
-             (::attribute->transition state)))
+             (::tag->transition state)))
 
 
 
 
-(defn advance-all
+(defn move-all
 
   ""
 
   [id->state step]
 
-  (persistent! (reduce-kv (fn advance-state [id->state' id state]
-                            (if-some [state' (advance state
-                                                      step)]
+  (persistent! (reduce-kv (fn move-entity [id->state' id state]
+                            (if-some [state' (move state
+                                                   step)]
                               (assoc! id->state'
                                       id
                                       state')

@@ -2,10 +2,7 @@
 
   " ? "
 
-  {:author "Adam Helinski"}
-
-  (:require [dvlopt.void :as void]))
-
+  {:author "Adam Helinski"})
 
 
 

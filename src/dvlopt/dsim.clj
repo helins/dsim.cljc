@@ -135,3 +135,23 @@
                state
                (get state
                     k-transitions))))
+
+
+
+
+(defn move-seq
+
+  ""
+
+  [state k-transitions step-seq]
+
+  (reduce (fn ??? [state step]
+            (let [state' (move state
+                               k-transitions
+                               step)]
+              (if (empty? (get state'
+                               k-transitions))
+                (reduced state')
+                state')))
+          state
+          step-seq))

@@ -103,3 +103,17 @@
         (t/is (not (contains? (:a state-11)
                               :y))
               "Any value related to the :y transition should have disappeared")))))
+
+
+
+
+(t/deftest move-seq
+
+  (let [state {::transitions {:x (dsim/transition 0
+                                                  10
+                                                  on-step)}}]
+    (t/is (= (dsim/move-seq state
+                            ::transitions
+                            (range))
+             {:x 1})
+          "Transition should be finished and cleaned")))

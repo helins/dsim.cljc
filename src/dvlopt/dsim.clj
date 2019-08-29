@@ -26,31 +26,36 @@
 ;;;;;;;;;; Transitions
 
 
-(defn remove-on-complete
+(defn last-step
 
   ""
 
-  [_state]
+  [start n-steps]
 
-  nil)
+  (+ start
+     (dec n-steps)))
 
 
 
 
-(defn remove-transition
+(defn dissoc-in
 
   ""
 
-  [state tag]
+  [hmap [k & ks :as path]]
 
-  (let [tag->transition (dissoc (::tag->transition state)
-                                tag)]
-    (if (empty? tag->transition)
-      (dissoc state
-              ::tag->transition)
-      (assoc state
-             ::tag->transition
-             tag->transition))))
+  (if-not ks
+    (dissoc hmap
+            k)
+    (let [hmap-rest (dissoc-in (get hmap
+                                    k)
+                               ks)]
+      (if (empty? hmap-rest)
+        (dissoc hmap
+                k)
+        (assoc hmap
+               k
+               hmap-rest)))))
 
 
 
@@ -59,63 +64,57 @@
 
   ""
 
-  ([tag start n-steps on-step]
+  ([first-step last-step on-step]
 
-   (transition tag
-               start
-               n-steps
+   (transition first-step
+               last-step
                on-step
                nil))
 
 
-  ([tag start n-steps on-step on-complete]
+  ([first-step last-step on-step on-complete]
 
-   (let [end   (+ start
-                  (dec n-steps))
-         delta (- end
-                  start)]
-     (fn state-at-step [state step]
+   (let [delta (- last-step
+                  first-step)]
+     (fn state-at-step [state path step]
        (if (>= step
-               start)
+               first-step)
          (if (<= step
-                 end)
+                 last-step)
            (on-step state
+                    path
                     (/ (- step
-                          start)
+                          first-step)
                        delta))
-           (let [state' (remove-transition state
-                                           tag)]
+           (let [state' (dissoc-in state
+                                   path)]
              (if on-complete
-               (on-complete state')
+               (on-complete state'
+                            path)
                state')))
          state)))))
 
 
 
 
-(defn add-transition
+(defn- -recur-move
 
-  ""
+  ;;
 
-  ([entity tag start n-steps on-step]
+  [state step path transition]
 
-   (add-transition entity
-                   tag
-                   start
-                   n-steps
-                   on-step
-                   nil))
-
-  ([entity tag start n-steps on-step on-complete]
-
-   (assoc-in entity
-             [::tag->transition
-              tag]
-             (transition tag
-                         start
-                         n-steps
-                         on-step
-                         on-complete))))
+  (cond
+    (fn? transition)  (transition state
+                                  path
+                                  step)
+    (map? transition) (reduce-kv (fn recur-over [state k transition]
+                                   (-recur-move state
+                                                step
+                                                (conj path
+                                                      k)
+                                                transition))
+                                 state
+                                 transition)))
 
 
 
@@ -124,32 +123,15 @@
 
   ""
 
-  [state step]
+  [state k-transitions step]
 
-  (reduce-kv (fn apply-transition [state' _tag transition]
-               (let [state'2 (transition state'
-                                         step)]
-                 (if (nil? state'2)
-                   (reduced nil)
-                   state'2)))
-             state
-             (::tag->transition state)))
-
-
-
-
-(defn move-all
-
-  ""
-
-  [id->state step]
-
-  (persistent! (reduce-kv (fn move-entity [id->state' id state]
-                            (if-some [state' (move state
-                                                   step)]
-                              (assoc! id->state'
-                                      id
-                                      state')
-                              id->state'))
-                          (transient {})
-                          id->state)))
+  (let [path [k-transitions]]
+    (reduce-kv (fn ??? [state k transition]
+                 (-recur-move state
+                              step
+                              (conj path
+                                    k)
+                              transition))
+               state
+               (get state
+                    k-transitions))))

@@ -60,6 +60,19 @@
 
 
 
+(defn- -percent
+
+  ;;
+
+  [delta first-step current-step]
+
+  (/ (- current-step
+        first-step)
+     delta))
+
+
+
+
 (defn transition
 
   ""
@@ -83,9 +96,9 @@
                  last-step)
            (on-step state
                     path
-                    (/ (- step
-                          first-step)
-                       delta))
+                    (-percent delta
+                              first-step
+                              step))
            (let [state' (dissoc-in state
                                    path)]
              (if on-complete
@@ -150,7 +163,56 @@
       (let [state' (move state
                          k-transitions
                          step)]
-        (cons [state' step]
+        (cons [state'
+               step]
               (move-seq state'
                         k-transitions
                         (rest step-seq)))))))
+
+
+
+
+(defn move-events
+
+  ""
+
+  ;; A bit ugly, but functional and somewhat efficient.
+
+  ;; TODO. Should throw when ::step is missing from an event ?
+
+  [state k-transitions step-seq events handle-event]
+
+  (lazy-seq
+    (if-some [events' (seq events)]
+      (when-some [step (first step-seq)]
+        (loop [events'2 events'
+               state'   state]
+          (let [event (first events'2)]
+            (if (<= (::step event)
+                    step)
+              (let [state-after-event (handle-event state'
+                                                    event)]
+                (if-some [next-events (next events'2)]
+                  (recur next-events
+                         state-after-event)
+                  (let [moved-state (move state-after-event
+                                          k-transitions
+                                          step)]
+                    (cons [moved-state
+                           step]
+                          (move-seq moved-state
+                                    k-transitions
+                                    (rest step-seq))))))
+              (let [moved-state (move state'
+                                      k-transitions
+                                      step)]
+                (cons [moved-state
+                       step]
+                      (move-events moved-state
+                                   k-transitions
+                                   (rest step-seq)
+                                   events'2
+                                   handle-event)))))))
+      (move-seq state
+                k-transitions
+                step-seq))))

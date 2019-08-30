@@ -58,21 +58,29 @@
 
 
 
+(def state
+
+  ;;
+
+ {::transitions {:a {:x (dsim/transition 0
+                                         5
+                                         on-step)
+                     :y (dsim/transition 0
+                                         10
+                                         on-step
+                                         (fn on-complete [state path]
+                                           (dsim/dissoc-in state
+                                                           (rest path))))}
+                 :b (dsim/transition 0
+                                     15
+                                     on-step)}})
+
+
+
+
 (t/deftest move
 
-  (let [state {::transitions {:a {:x (dsim/transition 0
-                                                      5
-                                                      on-step)
-                                  :y (dsim/transition 0
-                                                      10
-                                                      on-step
-                                                      (fn on-complete [state path]
-                                                        (dsim/dissoc-in state
-                                                                        (rest path))))}
-                              :b (dsim/transition 0
-                                                  15
-                                                  on-step)}}
-        state-5 (dsim/move state
+  (let [state-5 (dsim/move state
                            ::transitions
                            5)]
     (t/is (= (:x (:a state-5))
@@ -109,18 +117,80 @@
 
 (t/deftest move-seq
 
-  (let [state     {::transitions {:x (dsim/transition 0
-                                                      10
-                                                      on-step)}}
-		state-seq (dsim/move-seq state
+  (t/is (empty? (dsim/move-seq state
+                               ::transitions
+                               nil))
+        "Without any step, the sequence of states should be empty")
+  (let [state-seq (dsim/move-seq state
 								 ::transitions
-								 (range 11))]
+								 (range 6))]
 	(t/is (every? true?
-				  (map (fn ??? [[state-at-step step]]
+				  (map (fn equal? [[state-at-step step]]
 					     (= state-at-step
 							(dsim/move state
 									   ::transitions
 									   step)))
 					   state-seq))
-  		  "The current state does not depend on the previous one, hence following a sequence of states should match jumping directly
-		   from state 0 to state N.")))
+  		  "For those N steps, the current state does not depend on the previous one, hence following a sequence of states should match
+           jumping directly from state 0 to state N.")))
+
+
+
+
+(t/deftest move-events
+
+  (t/is (empty? (dsim/move-events state
+                                  ::transitions
+                                  nil
+                                  nil
+                                  nil))
+        "Without any step, the sequence of states should be empty")
+  (t/is (= (dsim/move-events state
+                             ::transitions
+                             (range)
+                             nil
+                             nil)
+           (dsim/move-seq state
+                          ::transitions
+                          (range)))
+        "Without any event, `move-events` should behave just like `move-seq`")
+  (let [events       (for [i (range 5)]
+                       {::dsim/step i})
+        handle-event (fn handle-event [state event]
+                       (assoc state
+                              ::value
+                              (::dsim/step event)))]
+    (t/is (= (last (dsim/move-events {}
+                                     ::transitions
+                                     (range)
+                                     events
+                                     handle-event))
+             [{::value 4}
+              4])
+          "Events should be handled regardless of transitions")
+    (t/is (= (-> (dsim/move-events {::transitions {:x (dsim/transition 0
+                                                                       10
+                                                                       on-step)}}
+                                   ::transitions
+                                   (range)
+                                   events
+                                   handle-event)
+                 last
+                 first
+                 :x)
+             1)
+          "The :x transition should finish even though there are less events than the number of steps required for completion")
+    (let [[half-done-state
+           step]           (last (dsim/move-events {::transitions {:x (dsim/transition 0
+                                                                                       3
+                                                                                       on-step)}}
+                                                   ::transitions
+                                                   (range 2)
+                                                   events
+                                                   handle-event))]
+      (t/is (= step
+               1)
+            "Move should stop at the last step")
+      (t/is (< (:x half-done-state)
+               1)
+            "The transition should not be finished"))))

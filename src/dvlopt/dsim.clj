@@ -10,34 +10,6 @@
 ;;;;;;;;;; Utilities
 
 
-(defn millis->n-steps
-
-  ""
-
-  [millis hz]
-
-  (long (Math/round (double (* (/ hz
-                                  1000)
-                               millis)))))
-
-
-
-
-;;;;;;;;;; Transitions
-
-
-(defn last-step
-
-  ""
-
-  [start n-steps]
-
-  (+ start
-     (dec n-steps)))
-
-
-
-
 (defn dissoc-in
 
   ""
@@ -56,6 +28,77 @@
         (assoc hmap
                k
                hmap-rest)))))
+
+
+
+
+(defn millis->n-steps
+
+  ""
+
+  [millis hz]
+
+  (long (Math/round (double (* (/ hz
+                                  1000)
+                               millis)))))
+
+
+
+
+(defn percent->scalar
+
+  ""
+
+  ([value-range percent]
+
+   (* percent
+      value-range))
+
+
+  ([min-value max-value percent]
+
+   (+ (percent->scalar (- max-value
+                          min-value)
+                       percent)
+      min-value)))
+
+
+
+
+(defn fn-percent->scalar
+
+  ""
+
+  ([value-range]
+
+   (fn to-scalar [percent]
+     (* percent
+        value-range)))
+
+
+  ([min-value max-value]
+
+   (let [value-range (- max-value
+                        min-value)]
+     (fn to-scalar [percent]
+       (+ (* percent
+             value-range)
+          min-value)))))
+
+
+
+
+;;;;;;;;;; Transitions
+
+
+(defn last-step
+
+  ""
+
+  [start n-steps]
+
+  (+ start
+     (dec n-steps)))
 
 
 

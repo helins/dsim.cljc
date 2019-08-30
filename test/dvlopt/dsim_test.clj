@@ -109,11 +109,18 @@
 
 (t/deftest move-seq
 
-  (let [state {::transitions {:x (dsim/transition 0
-                                                  10
-                                                  on-step)}}]
-    (t/is (= (dsim/move-seq state
-                            ::transitions
-                            (range))
-             {:x 1})
-          "Transition should be finished and cleaned")))
+  (let [state     {::transitions {:x (dsim/transition 0
+                                                      10
+                                                      on-step)}}
+		state-seq (dsim/move-seq state
+								 ::transitions
+								 (range 11))]
+	(t/is (every? true?
+				  (map (fn ??? [[state-at-step step]]
+					     (= state-at-step
+							(dsim/move state
+									   ::transitions
+									   step)))
+					   state-seq))
+  		  "The current state does not depend on the previous one, hence following a sequence of states should match jumping directly
+		   from state 0 to state N.")))

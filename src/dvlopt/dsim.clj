@@ -141,17 +141,16 @@
 
 (defn move-seq
 
-  ""
-
   [state k-transitions step-seq]
 
-  (reduce (fn ??? [state step]
-            (let [state' (move state
-                               k-transitions
-                               step)]
-              (if (empty? (get state'
-                               k-transitions))
-                (reduced state')
-                state')))
-          state
-          step-seq))
+  (lazy-seq
+    (when-let [step (and (not (empty? (get state
+                                           k-transitions)))
+                         (first step-seq))]
+      (let [state' (move state
+                         k-transitions
+                         step)]
+        (cons [state' step]
+              (move-seq state'
+                        k-transitions
+                        (rest step-seq)))))))

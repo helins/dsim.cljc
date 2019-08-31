@@ -45,6 +45,27 @@
 
 
 
+(t/deftest deep-merge
+
+  (let [merged (dsim/deep-merge {:a :before
+                                 :b {:c :before
+                                     :d {:e :before}}}
+                                {:a :after
+                                 :b {:c :after
+                                     :d :after}
+                                 :e {:f :after}})]
+    (t/are [path]
+           (identical? (get-in merged
+                               path)
+                       :after)
+      [:a]
+      [:b :c]
+      [:b :d]
+      [:e :f])))
+
+
+
+
 (defn on-step
 
   ;;

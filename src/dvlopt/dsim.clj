@@ -32,6 +32,24 @@
 
 
 
+(defn deep-merge
+
+  ""
+
+  [hmap-1 hmap-2]
+
+  (merge-with (fn select-value [v-1 v-2]
+                (if (and (map? v-1)
+                         (map? v-2))
+                  (deep-merge v-1
+                              v-2)
+                  v-2))
+              hmap-1
+              hmap-2))
+
+
+
+
 (defn millis->n-steps
 
   ""

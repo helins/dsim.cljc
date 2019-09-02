@@ -204,6 +204,45 @@
 
 
 
+(defn remove-complete-data
+
+  ""
+
+  [state data-path _step]
+
+  (dissoc-in state
+             data-path))
+
+
+
+(defn transitions?
+
+  ""
+
+  [state data-path]
+
+  (not (empty? (get-in state
+                       (transition-path data-path)))))
+
+
+
+
+(defn remove-complete-entity
+
+  ""
+
+  [state data-path _step]
+
+  (let [entity-path (drop-last data-path)]
+    (if (transitions? state
+                      entity-path)
+      state
+      (dissoc-in state
+                 entity-path))))
+
+
+
+
 (defn in-mirror
 
   ""

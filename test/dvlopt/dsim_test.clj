@@ -228,3 +228,33 @@
                                 (dsim/move 3))
                             [:x]
                             true)))
+
+
+
+
+(t/deftest remove-complete-data
+
+  (t/is (not (contains? (-> (dsim/in-mirror {}
+                                            [:x]
+                                            0
+                                            5
+                                            on-step
+                                            dsim/remove-complete-data)
+                            (dsim/move 5)
+                            (dsim/move 6))
+                        :x))))
+
+
+
+
+(t/deftest remove-complete-entity
+
+  (t/is (not (contains? (-> (dsim/in-mirror {:a {:y 42}}
+                                            [:a :x]
+                                            0
+                                            5
+                                            on-step
+                                            dsim/remove-complete-entity)
+                            (dsim/move 5)
+                            (dsim/move 6))
+                        :a))))

@@ -55,9 +55,9 @@
                                      :d :after}
                                  :e {:f :after}})]
     (t/are [path]
-           (identical? (get-in merged
-                               path)
-                       :after)
+           (identical? :after
+                       (get-in merged
+                               path))
       [:a]
       [:b :c]
       [:b :d]
@@ -105,16 +105,16 @@
 
   (let [state-5 (dsim/move state
                            5)]
-    (t/is (= (:x (:a state-5))
-             1)
+    (t/is (= 1
+             (:x (:a state-5)))
           "Value of :x should reflect that the transition is complete")
-    (t/is (= (double (:y (:a state-5)))
-             0.5)
+    (t/is (= 0.5
+             (double (:y (:a state-5))))
           "Value of :y should reflecht that the transition is half-done")
     (let [state-6 (dsim/move state-5
                              6)
-          a-6     (:a (get state-6
-                           dsim/transition-key))]
+          a-6     (get-in state-6
+                          (dsim/transition-path [:a]))]
       (t/is (not (contains? a-6
                             :x))
             "The :x transition should be completed and gone")
@@ -127,8 +127,8 @@
             "The :b transition should still be going on")
       (let [state-11 (dsim/move state-6
                                 11)]
-        (t/is (not (contains? (:a (get state-11
-                                       dsim/transition-key))
+        (t/is (not (contains? (get-in state-11
+                                      (dsim/transition-path [:a]))
                               :y))
               "The :y transition should be completed and gone")
         (t/is (not (contains? (:a state-11)
@@ -178,14 +178,15 @@
                               ::value
                               (get event
                                    dsim/step-key)))]
-    (t/is (= (last (dsim/move-events {}
+    (t/is (= [{::value 4}
+              4]
+             (last (dsim/move-events {}
                                      (range)
                                      events
-                                     handle-event))
-             [{::value 4}
-              4])
+                                     handle-event)))
           "Events should be handled regardless of transitions")
-    (t/is (= (-> (dsim/move-events (dsim/in-mirror {}
+    (t/is (= 1
+             (-> (dsim/move-events (dsim/in-mirror {}
                                                    [:x]
                                                    0
                                                    10
@@ -195,8 +196,7 @@
                                    handle-event)
                  last
                  first
-                 :x)
-             1)
+                 :x))
           "The :x transition should finish even though there are less events than the number of steps required for completion")
     (let [[half-done-state
            step]           (last (dsim/move-events (dsim/in-mirror {}
@@ -207,8 +207,8 @@
                                                    (range 2)
                                                    events
                                                    handle-event))]
-      (t/is (= step
-               1)
+      (t/is (= 1
+               step)
             "Move should stop at the last step")
       (t/is (< (:x half-done-state)
                1)

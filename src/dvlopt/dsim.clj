@@ -134,6 +134,38 @@
 
 
 
+(def transition-key
+
+  ""
+
+  ::transitions)
+
+
+
+
+(defn transition-path
+
+  ""
+
+  [data-path]
+
+  (cons transition-key
+        data-path))
+
+
+
+
+(defn data-path
+
+  ""
+
+  [ŧransition-path]
+
+  (rest transition-path))
+
+
+
+
 (defn transition
 
   ""
@@ -150,21 +182,22 @@
 
    (let [delta (- last-step
                   first-step)]
-     (fn state-at-step [state path step]
+     (fn state-at-step [state data-path step]
        (if (>= step
                first-step)
          (if (<= step
                  last-step)
            (on-step state
-                    path
+                    data-path
                     (-percent delta
                               first-step
                               step))
            (let [state' (dissoc-in state
-                                   path)]
+                                   (transition-path data-path))]
              (if on-complete
                (on-complete state'
-                            path)
+                            data-path
+                            step)
                state')))
          state)))))
 
@@ -175,29 +208,27 @@
 
   ""
 
-  ([state k-transitions path first-step last-step map-percent]
+  ([state data-path first-step last-step map-percent]
 
    (in-mirror state
-              k-transitions
-              path
+              data-path
               first-step
               last-step
               map-percent
               nil))
 
 
-  ([state k-transitions path first-step last-step map-percent on-complete]
+  ([state data-path first-step last-step map-percent on-complete]
 
    (assoc-in state
-             (cons k-transitions
-                   path)
+             (transition-path data-path)
              (transition first-step
                          last-step
-                         (fn on-step [state' transition-path percent]
+                         (fn on-step [state' data-path percent]
                            (assoc-in state'
-                                     path
+                                     data-path
                                      (map-percent state'
-                                                  transition-path
+                                                  data-path
                                                   percent)))
                          on-complete))))
 
@@ -233,37 +264,33 @@
 
   ""
 
-  [state k-transitions step]
+  [state step]
 
-  (let [path [k-transitions]]
-    (reduce-kv (fn ??? [state k transition]
-                 (-recur-move state
-                              step
-                              (conj path
-                                    k)
-                              transition))
-               state
-               (get state
-                    k-transitions))))
+  (reduce-kv (fn ??? [state k transition]
+               (-recur-move state
+                            step
+                            [k]
+                            transition))
+             state
+             (get state
+                  transition-key)))
 
 
 
 
 (defn move-seq
 
-  [state k-transitions step-seq]
+  [state step-seq]
 
   (lazy-seq
     (when-let [step (and (not (empty? (get state
-                                           k-transitions)))
+                                           transition-key)))
                          (first step-seq))]
       (let [state' (move state
-                         k-transitions
                          step)]
         (cons [state'
                step]
               (move-seq state'
-                        k-transitions
                         (rest step-seq)))))))
 
 
@@ -277,7 +304,7 @@
 
   ;; TODO. Should throw when ::step is missing from an event ?
 
-  [state k-transitions step-seq events handle-event]
+  [state step-seq events handle-event]
 
   (lazy-seq
     (if-some [events' (seq events)]
@@ -293,23 +320,18 @@
                   (recur next-events
                          state-after-event)
                   (let [moved-state (move state-after-event
-                                          k-transitions
                                           step)]
                     (cons [moved-state
                            step]
                           (move-seq moved-state
-                                    k-transitions
                                     (rest step-seq))))))
               (let [moved-state (move state'
-                                      k-transitions
                                       step)]
                 (cons [moved-state
                        step]
                       (move-events moved-state
-                                   k-transitions
                                    (rest step-seq)
                                    events'2
                                    handle-event)))))))
       (move-seq state
-                k-transitions
                 step-seq))))

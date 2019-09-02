@@ -106,7 +106,7 @@
 
 
 
-;;;;;;;;;; Transitions
+;;;;;;;;;; Creating transitions
 
 
 (defn last-step
@@ -169,6 +169,42 @@
          state)))))
 
 
+
+
+(defn in-mirror
+
+  ""
+
+  ([state k-transitions path first-step last-step map-percent]
+
+   (in-mirror state
+              k-transitions
+              path
+              first-step
+              last-step
+              map-percent
+              nil))
+
+
+  ([state k-transitions path first-step last-step map-percent on-complete]
+
+   (assoc-in state
+             (cons k-transitions
+                   path)
+             (transition first-step
+                         last-step
+                         (fn on-step [state' transition-path percent]
+                           (assoc-in state'
+                                     path
+                                     (map-percent state'
+                                                  transition-path
+                                                  percent)))
+                         on-complete))))
+
+
+
+
+;;;;;;;;;; Moving states through steps
 
 
 (defn- -recur-move

@@ -215,3 +215,21 @@
       (t/is (< (:x half-done-state)
                1)
             "The transition should not be finished"))))
+
+
+
+
+(t/deftest in-mirror
+
+  (t/is (= (:x (-> {}
+                   (dsim/in-mirror ::transitions
+                                   [:x]
+                                   0
+                                   10
+                                   (fn map-percent [_state _path percent]
+                                     percent))
+                   (dsim/move ::transitions
+                              10)
+                   (dsim/move ::transitions
+                              11)))
+           1)))

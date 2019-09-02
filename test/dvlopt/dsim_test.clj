@@ -213,3 +213,18 @@
       (t/is (< (:x half-done-state)
                1)
             "The transition should not be finished"))))
+
+
+
+
+(t/deftest remove-mirror
+
+  (t/is {}
+        (dsim/remove-mirror (-> (dsim/in-mirror {}
+                                                [:x]
+                                                0
+                                                5
+                                                on-step)
+                                (dsim/move 3))
+                            [:x]
+                            true)))

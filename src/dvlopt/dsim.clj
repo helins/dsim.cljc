@@ -235,6 +235,28 @@
 
 
 
+(defn remove-mirror
+
+  ""
+
+  ([state data-path]
+
+   (dissoc-in state
+              (transition-path data-path)))
+
+
+  ([state data-path remove-data?]
+
+   (let [state' (remove-mirror state
+                               data-path)]
+     (if remove-data?
+       (dissoc-in state'
+                  data-path)
+       state'))))
+
+
+
+
 ;;;;;;;;;; Moving states through steps
 
 

@@ -172,11 +172,12 @@
                           (range)))
         "Without any event, `move-events` should behave just like `move-seq`")
   (let [events       (for [i (range 5)]
-                       {::dsim/step i})
+                       {dsim/step-key i})
         handle-event (fn handle-event [state event]
                        (assoc state
                               ::value
-                              (::dsim/step event)))]
+                              (get event
+                                   dsim/step-key)))]
     (t/is (= (last (dsim/move-events {}
                                      (range)
                                      events
@@ -212,18 +213,3 @@
       (t/is (< (:x half-done-state)
                1)
             "The transition should not be finished"))))
-
-;(t/deftest in-mirror
-;
-;  (t/is (= (:x (-> {}
-;                   (dsim/in-mirror ::transitions
-;                                   [:x]
-;                                   0
-;                                   10
-;                                   (fn map-percent [_state _path percent]
-;                                     percent))
-;                   (dsim/move ::transitions
-;                              10)
-;                   (dsim/move ::transitions
-;                              11)))
-;           1)))

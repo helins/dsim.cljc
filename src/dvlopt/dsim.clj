@@ -296,6 +296,15 @@
 
 
 
+(def step-key
+
+  ""
+
+  ::step)
+
+
+
+
 (defn move-events
 
   ""
@@ -312,7 +321,8 @@
         (loop [events'2 events'
                state'   state]
           (let [event (first events'2)]
-            (if (<= (::step event)
+            (if (<= (get event
+                         step-key)
                     step)
               (let [state-after-event (handle-event state'
                                                     event)]

@@ -273,3 +273,15 @@
                                (dsim/fn-assoc-data :done))
                (dsim/move 6)
                :x))))
+
+
+
+
+(t/deftest fn-on-complete
+
+  (let [on-complete (dsim/fn-on-complete [dsim/remove-entity
+                                          (dsim/fn-assoc-data :after)])]
+    (t/is (= {:entity {:x :after}}
+             (on-complete {:entity {:x :before}}
+                          [:entity :x]
+                          nil)))))

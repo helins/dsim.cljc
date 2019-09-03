@@ -280,6 +280,28 @@
 
 
 
+(defn fn-on-complete
+
+  ""
+
+  [on-complete-vec]
+
+  (let [on-complete-vec' (filterv some?
+                                  on-complete-vec)]
+    (case (count on-complete-vec')
+      0 nil
+      1 (first on-complete-vec')
+      (fn on-complete [state data-path step]
+        (reduce (fn next-on-complete [state' local-on-complete]
+                  (local-on-complete state'
+                                     data-path
+                                     step))
+                state
+                on-complete-vec')))))
+
+
+
+
 (defn in-mirror
 
   ""

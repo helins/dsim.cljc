@@ -77,14 +77,14 @@
 
 
 
-(t/deftest repeating-transition
+(t/deftest transition
 
-  (let [states (dsim/move-seq {dsim/transition-key {:percent (dsim/repeating-transition 0
-                                                                                        10
-                                                                                        (fn [state data-path percent]
-                                                                                          (assoc-in state
-                                                                                                    data-path
-                                                                                                    percent)))}}
+  (let [states (dsim/move-seq {dsim/transition-key {:percent (dsim/transition 0
+                                                                              [:endless 10]
+                                                                              (fn [state data-path percent]
+                                                                                (assoc-in state
+                                                                                          data-path
+                                                                                          percent)))}}
                               (range))]
     (t/is (= 1
              (-> (nth states
@@ -92,16 +92,15 @@
                  first
                  :percent))
           "Transition should be there and the :percent value reflect the end of a cycle"))
-  (let [states       (dsim/move-seq {dsim/transition-key {:n-cycles (dsim/repeating-transition 3
-                                                                                               0
-                                                                                               10
-                                                                                               (fn [state data-path percent]
-                                                                                                 (if (= percent
-                                                                                                        1)
-                                                                                                   (update-in state
-                                                                                                              data-path
-                                                                                                              inc)
-                                                                                                   state)))}
+  (let [states       (dsim/move-seq {dsim/transition-key {:n-cycles (dsim/transition 0
+                                                                                     [:repeat 3 10]
+                                                                                     (fn [state data-path percent]
+                                                                                       (if (= percent
+                                                                                              1)
+                                                                                         (update-in state
+                                                                                                    data-path
+                                                                                                    inc)
+                                                                                         state)))}
                                      :n-cycles 0}
                                     (range))
         cycle-counts (map (comp :n-cycles
@@ -143,7 +142,7 @@
                       on-step)
       (dsim/in-mirror [:a :y]
                       0
-                      10
+                      9
                       on-step
                       (fn on-complete [state data-path _step]
                         (dsim/dissoc-in state
@@ -159,7 +158,7 @@
 (t/deftest move
 
   (let [state-5 (dsim/move state
-                           5)]
+                           4)]
     (t/is (= 1
              (:x (:a state-5)))
           "Value of :x should reflect that the transition is complete")
@@ -199,7 +198,7 @@
                                nil))
         "Without any step, the sequence of states should be empty")
   (let [state-seq (dsim/move-seq state
-								 (range 6))]
+								 (range 5))]
 	(t/is (every? true?
 				  (map (fn equal? [[state-at-step step]]
 					     (= state-at-step

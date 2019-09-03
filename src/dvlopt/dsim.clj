@@ -170,90 +170,116 @@
 
 
 
+(defn- -transition
+
+  ;;
+
+  [first-step n-steps on-step on-complete]
+
+  (let [last-step'  (last-step first-step
+                               n-steps)
+        delta-steps (- last-step'
+                       first-step)]
+    (fn state-at-step [state data-path step]
+      (if (>= step
+              first-step)
+        (if (<= step
+                last-step')
+          (on-step state
+                   data-path
+                   (/ (- step
+                         first-step)
+                      delta-steps))
+          (-complete-transition state
+                                data-path
+                                step
+                                on-complete))
+        state))))
+
+
+
+
+(defn- -endless-transition
+
+  ;;
+
+  [first-step n-steps on-step]
+
+  (let [last-cycle-step (dec n-steps)]
+    (fn state-at-step [state data-path step]
+     (if (>= step
+             first-step)
+       (on-step state
+                data-path
+                (/ (rem (- step
+                           first-step)
+                        n-steps)
+                   last-cycle-step))
+       state))))
+
+
+
+
+(defn- -repeating-transition
+
+  ;;
+
+  [n-times first-step n-steps on-step on-complete]
+
+  (let [last-cycle-step (dec n-steps)]
+    (fn state-at-step [state data-path step]
+      (if (>= step
+              first-step)
+        (let [delta-first (- step
+                             first-step)]
+          (if (< (quot delta-first
+                       n-steps)
+                  n-times)
+            (on-step state
+                     data-path
+                     (/ (rem delta-first
+                             n-steps)
+                        last-cycle-step))
+            (-complete-transition state
+                                  data-path
+                                  step
+                                  on-complete)))
+        state))))
+
+
+
+
 (defn transition
 
   ""
 
-  ([first-step last-step on-step]
+  ([first-step steps on-step]
 
    (transition first-step
-               last-step
+               steps
                on-step
                nil))
 
 
-  ([first-step last-step on-step on-complete]
+  ([first-step steps on-step on-complete]
 
-   (let [delta (- last-step
-                  first-step)]
-     (fn state-at-step [state data-path step]
-       (if (>= step
-               first-step)
-         (if (<= step
-                 last-step)
-           (on-step state
-                    data-path
-                    (/ (- step
-                          first-step)
-                       delta))
-           (-complete-transition state
-                                 data-path
-                                 step
-                                 on-complete))
-         state)))))
+   (condp identical?
+          (first steps)
+     :endless (-endless-transition first-step
+                                    (second steps)
+                                    on-step)
+     :once    (-transition first-step
+                           (second steps)
+                           on-step
+                           on-complete)
+     :repeat  (-repeating-transition (second steps)
+                                     first-step
+                                     (nth steps
+                                          2)
+                                     on-step
+                                     on-complete))))
 
 
-
-
-(defn repeating-transition
-
-  ""
-
-  ([first-step n-steps on-step]
-
-   (let [last-cycle-step (dec n-steps)]
-     (fn state-at-step [state data-path step]
-      (if (>= step
-              first-step)
-        (on-step state
-                 data-path
-                 (/ (rem (- step
-                            first-step)
-                         n-steps)
-                    last-cycle-step))
-        state))))
-
-
-  ([n-times first-step n-steps on-step]
-  
-   (repeating-transition n-times
-                         first-step
-                         n-steps
-                         on-step
-                         nil))
-
-
-  ([n-times first-step n-steps on-step on-complete]
-
-   (let [last-cycle-step (dec n-steps)]
-     (fn state-at-step [state data-path step]
-       (if (>= step
-               first-step)
-         (let [delta-first (- step
-                              first-step)]
-           (if (< (quot delta-first
-                        n-steps)
-                   n-times)
-             (on-step state
-                      data-path
-                      (/ (rem delta-first
-                              n-steps)
-                         last-cycle-step))
-             (-complete-transition state
-                                   data-path
-                                   step
-                                   on-complete)))
-         state)))))
 
 
 
@@ -366,22 +392,22 @@
 
   ""
 
-  ([state data-path first-step last-step map-percent]
+  ([state data-path first-step n-steps map-percent]
 
    (in-mirror state
               data-path
               first-step
-              last-step
+              n-steps
               map-percent
               nil))
 
 
-  ([state data-path first-step last-step map-percent on-complete]
+  ([state data-path first-step n-steps map-percent on-complete]
 
    (assoc-in state
              (transition-path data-path)
              (transition first-step
-                         last-step
+                         [:once n-steps]
                          (fn on-step [state' data-path percent]
                            (assoc-in state'
                                      data-path

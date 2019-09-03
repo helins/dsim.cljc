@@ -76,6 +76,47 @@
 
 
 
+(t/deftest repeating-transition
+
+  (let [states       (dsim/move-seq {dsim/transition-key {:n-cycles (dsim/repeating-transition 3
+                                                                                               0
+                                                                                               10
+                                                                                               (fn [state data-path percent]
+                                                                                                 (if (= percent
+                                                                                                        1)
+                                                                                                   (update-in state
+                                                                                                              data-path
+                                                                                                              inc)
+                                                                                                   state)))}
+                                     :n-cycles 0}
+                                    (range))
+        cycle-counts (map (comp :n-cycles
+                                first)
+                          states)]
+    (t/is (= 0
+             (nth cycle-counts
+                  5))
+          "Transition should be still in the first cycle")
+    (t/is (= 1
+             (nth cycle-counts
+                  9))
+          "First cycle should be completed")
+    (t/is (= 2
+             (nth cycle-counts
+                  19))
+          "Second cycle should be completed")
+    (t/is (= 3
+             (nth cycle-counts
+                  29))
+          "Third and last cycle should be completed")
+    (t/is (= 31
+             (count states))
+          "There should be 31 steps, 3 x 10 + 1 for `on-complete`")
+    (t/is (not (dsim/transitions? (first (last states))))
+          "When finished, the transition should be removed")))
+
+
+
 
 (def state
 

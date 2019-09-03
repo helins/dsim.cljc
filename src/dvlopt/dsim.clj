@@ -121,19 +121,6 @@
 
 
 
-(defn- -percent
-
-  ;;
-
-  [delta first-step current-step]
-
-  (/ (- current-step
-        first-step)
-     delta))
-
-
-
-
 (def transition-key
 
   ""
@@ -166,6 +153,23 @@
 
 
 
+(defn- -complete-transition
+
+  ;;
+
+  [state data-path step on-complete]
+
+  (let [state' (dissoc-in state
+                          (transition-path data-path))]
+    (if on-complete
+      (on-complete state'
+                   data-path
+                   step)
+      state')))
+
+
+
+
 (defn transition
 
   ""
@@ -189,16 +193,51 @@
                  last-step)
            (on-step state
                     data-path
-                    (-percent delta
-                              first-step
-                              step))
-           (let [state' (dissoc-in state
-                                   (transition-path data-path))]
-             (if on-complete
-               (on-complete state'
-                            data-path
-                            step)
-               state')))
+                    (/ (- step
+                          first-step)
+                       delta))
+           (-complete-transition state
+                                 data-path
+                                 step
+                                 on-complete))
+         state)))))
+
+
+
+
+(defn repeating-transition
+
+  ""
+
+  ([n-times first-step n-steps on-step]
+  
+   (repeating-transition n-times
+                         first-step
+                         n-steps
+                         on-step
+                         nil))
+
+
+  ([n-times first-step n-steps on-step on-complete]
+
+   (let [last-cycle-step (dec n-steps)]
+     (fn state-at-step [state data-path step]
+       (if (>= step
+               first-step)
+         (let [delta-first (- step
+                              first-step)]
+           (if (< (quot delta-first
+                        n-steps)
+                   n-times)
+             (on-step state
+                      data-path
+                      (/ (rem delta-first
+                              n-steps)
+                         last-cycle-step))
+             (-complete-transition state
+                                   data-path
+                                   step
+                                   on-complete)))
          state)))))
 
 
@@ -227,10 +266,16 @@
 
   ""
 
-  [state data-path]
+  ([state]
 
-  (not (empty? (get-in state
-                       (transition-path data-path)))))
+   (not (empty? (get state
+                     transition-key))))
+
+
+  ([state data-path]
+
+   (not (empty? (get-in state
+                        (transition-path data-path))))))
 
 
 

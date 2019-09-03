@@ -204,14 +204,22 @@
 
 
 
-(defn remove-complete-data
+(defn remove-data
 
   ""
 
-  [state data-path _step]
+  ([state data-path]
 
-  (dissoc-in state
-             data-path))
+   (remove-data state
+                data-path
+                nil))
+
+
+  ([state data-path _step]
+
+   (dissoc-in state
+              data-path)))
+
 
 
 
@@ -227,18 +235,47 @@
 
 
 
-(defn remove-complete-entity
+(defn remove-entity
 
   ""
 
-  [state data-path _step]
+  ([state data-path]
 
-  (let [entity-path (drop-last data-path)]
-    (if (transitions? state
-                      entity-path)
-      state
-      (dissoc-in state
-                 entity-path))))
+   (remove-entity state
+                  data-path))
+
+
+  ([state data-path _step]
+
+   (let [entity-path (drop-last data-path)]
+     (if (transitions? state
+                       entity-path)
+       state
+       (dissoc-in state
+                  entity-path)))))
+
+
+
+
+(defn fn-assoc-data
+
+  ""
+
+  [data]
+
+  (fn assoc-data
+
+    ([state data-path]
+
+     (assoc-data state
+                 data-path
+                 nil))
+
+
+    ([state data-path _step]
+     (assoc-in state
+               data-path
+               data))))
 
 
 

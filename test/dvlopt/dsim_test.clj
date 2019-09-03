@@ -232,14 +232,14 @@
 
 
 
-(t/deftest remove-complete-data
+(t/deftest remove-data
 
   (t/is (not (contains? (-> (dsim/in-mirror {}
                                             [:x]
                                             0
                                             5
                                             on-step
-                                            dsim/remove-complete-data)
+                                            dsim/remove-data)
                             (dsim/move 5)
                             (dsim/move 6))
                         :x))))
@@ -247,14 +247,29 @@
 
 
 
-(t/deftest remove-complete-entity
+(t/deftest remove-entity
 
   (t/is (not (contains? (-> (dsim/in-mirror {:a {:y 42}}
                                             [:a :x]
                                             0
                                             5
                                             on-step
-                                            dsim/remove-complete-entity)
+                                            dsim/remove-entity)
                             (dsim/move 5)
                             (dsim/move 6))
                         :a))))
+
+
+
+
+(t/deftest fn-assoc-data
+
+  (t/is (= :done
+           (-> (dsim/in-mirror {}
+                               [:x]
+                               0
+                               5
+                               on-step
+                               (dsim/fn-assoc-data :done))
+               (dsim/move 6)
+               :x))))

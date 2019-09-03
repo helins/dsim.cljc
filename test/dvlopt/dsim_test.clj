@@ -76,8 +76,22 @@
 
 
 
+
 (t/deftest repeating-transition
 
+  (let [states (dsim/move-seq {dsim/transition-key {:percent (dsim/repeating-transition 0
+                                                                                        10
+                                                                                        (fn [state data-path percent]
+                                                                                          (assoc-in state
+                                                                                                    data-path
+                                                                                                    percent)))}}
+                              (range))]
+    (t/is (= 1
+             (-> (nth states
+                      99)
+                 first
+                 :percent))
+          "Transition should be there and the :percent value reflect the end of a cycle"))
   (let [states       (dsim/move-seq {dsim/transition-key {:n-cycles (dsim/repeating-transition 3
                                                                                                0
                                                                                                10

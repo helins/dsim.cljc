@@ -209,6 +209,21 @@
 
   ""
 
+  ([first-step n-steps on-step]
+
+   (let [last-cycle-step (dec n-steps)]
+     (fn state-at-step [state data-path step]
+      (if (>= step
+              first-step)
+        (on-step state
+                 data-path
+                 (/ (rem (- step
+                            first-step)
+                         n-steps)
+                    last-cycle-step))
+        state))))
+
+
   ([n-times first-step n-steps on-step]
   
    (repeating-transition n-times

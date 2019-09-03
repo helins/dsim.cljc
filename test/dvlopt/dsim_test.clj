@@ -138,18 +138,18 @@
   (-> {}
       (dsim/in-mirror [:a :x]
                       0
-                      5
+                      [:once 5]
                       on-step)
       (dsim/in-mirror [:a :y]
                       0
-                      9
+                      [:once 9]
                       on-step
                       (fn on-complete [state data-path _step]
                         (dsim/dissoc-in state
                                         data-path)))
       (dsim/in-mirror [:b]
                       0
-                      15
+                      [:once 15]
                       on-step)))
 
 
@@ -243,7 +243,7 @@
              (-> (dsim/move-events (dsim/in-mirror {}
                                                    [:x]
                                                    0
-                                                   10
+                                                   [:once 10]
                                                    on-step)
                                    (range)
                                    events
@@ -256,7 +256,7 @@
            step]           (last (dsim/move-events (dsim/in-mirror {}
                                                                    [:x]
                                                                    0
-                                                                   3
+                                                                   [:once 3]
                                                                    on-step)
                                                    (range 2)
                                                    events
@@ -277,7 +277,7 @@
         (dsim/remove-mirror (-> (dsim/in-mirror {}
                                                 [:x]
                                                 0
-                                                5
+                                                [:once 5]
                                                 on-step)
                                 (dsim/move 3))
                             [:x]
@@ -291,7 +291,7 @@
   (t/is (not (contains? (-> (dsim/in-mirror {}
                                             [:x]
                                             0
-                                            5
+                                            [:once 5]
                                             on-step
                                             dsim/remove-data)
                             (dsim/move 5)
@@ -306,7 +306,7 @@
   (t/is (not (contains? (-> (dsim/in-mirror {:a {:y 42}}
                                             [:a :x]
                                             0
-                                            5
+                                            [:once 5]
                                             on-step
                                             dsim/remove-entity)
                             (dsim/move 5)
@@ -322,7 +322,7 @@
            (-> (dsim/in-mirror {}
                                [:x]
                                0
-                               5
+                               [:once 5]
                                on-step
                                (dsim/fn-assoc-data :done))
                (dsim/move 6)

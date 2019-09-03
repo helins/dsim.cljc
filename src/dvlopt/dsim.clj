@@ -7,6 +7,14 @@
 
 
 
+;;;;;;;;;; For keeping an alphabetical order when relevant
+
+
+(declare transitions?)
+
+
+
+
 ;;;;;;;;;; Utilities
 
 
@@ -106,7 +114,63 @@
 
 
 
-;;;;;;;;;; Creating transitions
+;;;;;;;;;; Helpers for transitions
+
+
+(defn data-path
+
+  ""
+
+  [transition-path]
+
+  (rest transition-path))
+
+
+
+
+(defn fn-assoc-data
+
+  ""
+
+  [data]
+
+  (fn assoc-data
+
+    ([state data-path]
+
+     (assoc-data state
+                 data-path
+                 nil))
+
+
+    ([state data-path _step]
+     (assoc-in state
+               data-path
+               data))))
+
+
+
+
+(defn fn-on-complete
+
+  ""
+
+  [on-complete-vec]
+
+  (let [on-complete-vec' (filterv some?
+                                  on-complete-vec)]
+    (case (count on-complete-vec')
+      0 nil
+      1 (first on-complete-vec')
+      (fn on-complete [state data-path step]
+        (reduce (fn next-on-complete [state' local-on-complete]
+                  (local-on-complete state'
+                                     data-path
+                                     step))
+                state
+                on-complete-vec')))))
+
+
 
 
 (defn last-step
@@ -117,6 +181,47 @@
 
   (+ start
      (dec n-steps)))
+
+
+
+
+(defn remove-data
+
+  ""
+
+  ([state data-path]
+
+   (remove-data state
+                data-path
+                nil))
+
+
+  ([state data-path _step]
+
+   (dissoc-in state
+              data-path)))
+
+
+
+
+(defn remove-entity
+
+  ""
+
+  ([state data-path]
+
+   (remove-entity state
+                  data-path))
+
+
+  ([state data-path _step]
+
+   (let [entity-path (drop-last data-path)]
+     (if (transitions? state
+                       entity-path)
+       state
+       (dissoc-in state
+                  entity-path)))))
 
 
 
@@ -142,15 +247,25 @@
 
 
 
-(defn data-path
+(defn transitions?
 
   ""
 
-  [ŧransition-path]
+  ([state]
 
-  (rest transition-path))
+   (not (empty? (get state
+                     transition-key))))
 
 
+  ([state data-path]
+
+   (not (empty? (get-in state
+                        (transition-path data-path))))))
+
+
+
+
+;;;;;;;;;; Creating transitions
 
 
 (defn- -complete-transition
@@ -282,108 +397,18 @@
 
 
 
-
-
-(defn remove-data
+(defn fn-mirror
 
   ""
 
-  ([state data-path]
+  [map-percent]
 
-   (remove-data state
-                data-path
-                nil))
-
-
-  ([state data-path _step]
-
-   (dissoc-in state
-              data-path)))
-
-
-
-
-(defn transitions?
-
-  ""
-
-  ([state]
-
-   (not (empty? (get state
-                     transition-key))))
-
-
-  ([state data-path]
-
-   (not (empty? (get-in state
-                        (transition-path data-path))))))
-
-
-
-
-(defn remove-entity
-
-  ""
-
-  ([state data-path]
-
-   (remove-entity state
-                  data-path))
-
-
-  ([state data-path _step]
-
-   (let [entity-path (drop-last data-path)]
-     (if (transitions? state
-                       entity-path)
-       state
-       (dissoc-in state
-                  entity-path)))))
-
-
-
-
-(defn fn-assoc-data
-
-  ""
-
-  [data]
-
-  (fn assoc-data
-
-    ([state data-path]
-
-     (assoc-data state
-                 data-path
-                 nil))
-
-
-    ([state data-path _step]
-     (assoc-in state
-               data-path
-               data))))
-
-
-
-
-(defn fn-on-complete
-
-  ""
-
-  [on-complete-vec]
-
-  (let [on-complete-vec' (filterv some?
-                                  on-complete-vec)]
-    (case (count on-complete-vec')
-      0 nil
-      1 (first on-complete-vec')
-      (fn on-complete [state data-path step]
-        (reduce (fn next-on-complete [state' local-on-complete]
-                  (local-on-complete state'
-                                     data-path
-                                     step))
-                state
-                on-complete-vec')))))
+  (fn mirror-on-step [state data-path percent]
+    (assoc-in state
+              data-path
+              (map-percent state
+                           data-path
+                           percent))))
 
 
 
@@ -392,28 +417,23 @@
 
   ""
 
-  ([state data-path first-step n-steps map-percent]
+  ([state data-path first-step steps map-percent]
 
    (in-mirror state
               data-path
               first-step
-              n-steps
+              steps
               map-percent
               nil))
 
 
-  ([state data-path first-step n-steps map-percent on-complete]
+  ([state data-path first-step steps map-percent on-complete]
 
    (assoc-in state
              (transition-path data-path)
              (transition first-step
-                         [:once n-steps]
-                         (fn on-step [state' data-path percent]
-                           (assoc-in state'
-                                     data-path
-                                     (map-percent state'
-                                                  data-path
-                                                  percent)))
+                         steps
+                         (fn-mirror map-percent)
                          on-complete))))
 
 

@@ -66,13 +66,29 @@
 
 
 
-(defn on-step
+(t/deftest in-transition?
 
-  ;;
+  (let [transition (dsim/transition 0
+                                    [:once 10]
+                                    nil)
+        state      {dsim/transition-key {:a transition
+                                         :b {:c transition}
+                                         :d nil}}]
+    (t/are [path]
+           (true? (dsim/in-transition? state
+                                       path))
+      [:a]
+      [:b :c])
+    (t/is (false? (dsim/in-transition? state
+                                       [:d])))))
 
-  [_state _path percent]
 
-  percent)
+
+
+(def on-step
+
+  (dsim/fn-mirror (fn only-percent [_state _data-path percent]
+                    percent)))
 
 
 
@@ -125,7 +141,7 @@
     (t/is (= 31
              (count states))
           "There should be 31 steps, 3 x 10 + 1 for `on-complete`")
-    (t/is (not (dsim/transitions? (first (last states))))
+    (t/is (not (dsim/in-transition? (first (last states))))
           "When finished, the transition should be removed")))
 
 
@@ -135,28 +151,28 @@
 
   ;;
 
-  (-> {}
-      (dsim/in-mirror [:a :x]
-                      0
-                      [:once 5]
-                      on-step)
-      (dsim/in-mirror [:a :y]
-                      0
-                      [:once 9]
-                      on-step
-                      (fn on-complete [state data-path _step]
-                        (dsim/dissoc-in state
-                                        data-path)))
-      (dsim/in-mirror [:b]
-                      0
-                      [:once 15]
-                      on-step)))
+  (dsim/merge-transitions {}
+                          {:a {:x (dsim/transition 0
+                                                   [:once 5]
+                                                   on-step)
+                               :y (dsim/transition 0
+                                                   [:once 9]
+                                                   on-step
+                                                   dsim/remove-data)}
+                           :b (dsim/transition 0
+                                               [:once 15]
+                                               on-step)}))
 
 
 
 
 (t/deftest move
 
+  (t/is (not (contains? (get (dsim/move {dsim/transition {:x nil}}
+                                        0)
+                             dsim/transition-key)
+                        :x))
+        "A nil transition should be removed")
   (let [state-5 (dsim/move state
                            4)]
     (t/is (= 1
@@ -240,11 +256,10 @@
                                      handle-event)))
           "Events should be handled regardless of transitions")
     (t/is (= 1
-             (-> (dsim/move-events (dsim/in-mirror {}
-                                                   [:x]
-                                                   0
-                                                   [:once 10]
-                                                   on-step)
+             (-> (dsim/move-events (dsim/merge-transitions {}
+                                                           {:x (dsim/transition 0
+                                                                                [:once 10]
+                                                                                on-step)})
                                    (range)
                                    events
                                    handle-event)
@@ -253,11 +268,10 @@
                  :x))
           "The :x transition should finish even though there are less events than the number of steps required for completion")
     (let [[half-done-state
-           step]           (last (dsim/move-events (dsim/in-mirror {}
-                                                                   [:x]
-                                                                   0
-                                                                   [:once 3]
-                                                                   on-step)
+           step]           (last (dsim/move-events (dsim/merge-transitions {}
+                                                                           {:x (dsim/transition 0
+                                                                                                [:once 3]
+                                                                                                on-step)})
                                                    (range 2)
                                                    events
                                                    handle-event))]
@@ -271,29 +285,13 @@
 
 
 
-(t/deftest remove-mirror
-
-  (t/is {}
-        (dsim/remove-mirror (-> (dsim/in-mirror {}
-                                                [:x]
-                                                0
-                                                [:once 5]
-                                                on-step)
-                                (dsim/move 3))
-                            [:x]
-                            true)))
-
-
-
-
 (t/deftest remove-data
 
-  (t/is (not (contains? (-> (dsim/in-mirror {}
-                                            [:x]
-                                            0
-                                            [:once 5]
-                                            on-step
-                                            dsim/remove-data)
+  (t/is (not (contains? (-> (dsim/merge-transitions {}
+                                                    {:x (dsim/transition 0
+                                                                         [:once 5]
+                                                                         on-step
+                                                                         dsim/remove-data)})
                             (dsim/move 5)
                             (dsim/move 6))
                         :x))))
@@ -301,14 +299,13 @@
 
 
 
-(t/deftest remove-entity
+(t/deftest remove-subtree
 
-  (t/is (not (contains? (-> (dsim/in-mirror {:a {:y 42}}
-                                            [:a :x]
-                                            0
-                                            [:once 5]
-                                            on-step
-                                            dsim/remove-entity)
+  (t/is (not (contains? (-> (dsim/merge-transitions {:a {:y 42}}
+                                                    {:a {:x (dsim/transition 0
+                                                                             [:once 5]
+                                                                             on-step
+                                                                             dsim/remove-subtree)}})
                             (dsim/move 5)
                             (dsim/move 6))
                         :a))))
@@ -319,12 +316,11 @@
 (t/deftest fn-assoc-data
 
   (t/is (= :done
-           (-> (dsim/in-mirror {}
-                               [:x]
-                               0
-                               [:once 5]
-                               on-step
-                               (dsim/fn-assoc-data :done))
+           (-> (dsim/merge-transitions {}
+                                       {:x (dsim/transition 0
+                                                            [:once 5]
+                                                            on-step
+                                                            (dsim/fn-assoc-data :done))})
                (dsim/move 6)
                :x))))
 
@@ -333,7 +329,7 @@
 
 (t/deftest fn-on-complete
 
-  (let [on-complete (dsim/fn-on-complete [dsim/remove-entity
+  (let [on-complete (dsim/fn-on-complete [dsim/remove-subtree
                                           (dsim/fn-assoc-data :after)])]
     (t/is (= {:entity {:x :after}}
              (on-complete {:entity {:x :before}}
@@ -341,7 +337,6 @@
                           nil)))))
 
 
-(def *a (atom nil))
 
 
 (t/deftest poly-transition
@@ -360,7 +355,6 @@
                                   (range))
         states'    (map first
                         states)]
-    (reset! *a states)
     (t/is (= 0
              (:i-transition (nth states'
                                  5)))

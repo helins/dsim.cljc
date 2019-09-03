@@ -10,8 +10,9 @@
 ;;;;;;;;;; For keeping alphabetical or logical order
 
 
-(declare move
-         transitions?)
+(declare in-transition?
+         move
+         transition-path)
 
 
 
@@ -153,6 +154,22 @@
 
 
 
+(defn fn-mirror
+
+  ""
+
+  [map-percent]
+
+  (fn mirror-on-step [state data-path percent]
+    (assoc-in state
+              data-path
+              (map-percent state
+                           data-path
+                           percent))))
+
+
+
+
 (defn fn-on-complete
 
   ""
@@ -171,6 +188,26 @@
                                      step))
                 state
                 on-complete-vec')))))
+
+
+
+
+(defn hard-remove-subtree
+
+  ""
+
+  ([state data-path]
+
+   (hard-remove-subtree state
+                        data-path
+                        nil))
+
+
+  ([state data-path _step]
+
+   (-> state
+       (dissoc-in data-path)
+       (dissoc-in (transition-path data-path)))))
 
 
 
@@ -206,24 +243,44 @@
 
 
 
-(defn remove-entity
+(defn remove-transition
 
   ""
 
   ([state data-path]
 
-   (remove-entity state
-                  data-path))
+   (remove-transition state
+                      data-path
+                      nil))
 
 
   ([state data-path _step]
 
-   (let [entity-path (drop-last data-path)]
-     (if (transitions? state
-                       entity-path)
+   (dissoc-in state
+              (transition-path data-path))))
+
+
+
+
+(defn remove-subtree
+
+  ""
+
+  ([state data-path]
+
+   (remove-subtree state
+                   data-path
+                   nil))
+
+
+  ([state data-path _step]
+
+   (let [subtree-path (drop-last data-path)]
+     (if (in-transition? state
+                         subtree-path)
        state
        (dissoc-in state
-                  entity-path)))))
+                  subtree-path)))))
 
 
 
@@ -249,7 +306,7 @@
 
 
 
-(defn transitions?
+(defn in-transition?
 
   ""
 
@@ -259,10 +316,13 @@
                      transition-key))))
 
 
-  ([state data-path]
+  ([state path]
 
-   (not (empty? (get-in state
-                        (transition-path data-path))))))
+   (let [transition (get-in state
+                            (transition-path path))]
+     (or (and (map? transition)
+              (not (empty? transition)))
+         (some? transition)))))
 
 
 
@@ -471,66 +531,16 @@
 
 
 
-(defn fn-mirror
+(defn merge-transitions
 
   ""
 
-  [map-percent]
+  [state transitions]
 
-  (fn mirror-on-step [state data-path percent]
-    (assoc-in state
-              data-path
-              (map-percent state
-                           data-path
-                           percent))))
-
-
-
-
-(defn in-mirror
-
-  ""
-
-  ([state data-path first-step steps map-percent]
-
-   (in-mirror state
-              data-path
-              first-step
-              steps
-              map-percent
-              nil))
-
-
-  ([state data-path first-step steps map-percent on-complete]
-
-   (assoc-in state
-             (transition-path data-path)
-             (transition first-step
-                         steps
-                         (fn-mirror map-percent)
-                         on-complete))))
-
-
-
-
-(defn remove-mirror
-
-  ""
-
-  ([state data-path]
-
-   (dissoc-in state
-              (transition-path data-path)))
-
-
-  ([state data-path remove-data?]
-
-   (let [state' (remove-mirror state
-                               data-path)]
-     (if remove-data?
-       (dissoc-in state'
-                  data-path)
-       state'))))
+  (update state
+          transition-key
+          deep-merge
+          transitions))
 
 
 
@@ -555,7 +565,9 @@
                                                       k)
                                                 transition))
                                  state
-                                 transition)))
+                                 transition)
+    (nil? transition) (dissoc-in state
+                                 path)))
 
 
 

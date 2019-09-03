@@ -339,3 +339,40 @@
              (on-complete {:entity {:x :before}}
                           [:entity :x]
                           nil)))))
+
+
+(def *a (atom nil))
+
+
+(t/deftest poly-transition
+
+  (let [fn-on-step (fn make-on-step [i-transition]
+                     (fn on-step [state data-path percent]
+                       (merge state
+                              {:i-transition i-transition
+                               :percent      percent})))
+        state      {dsim/transition-key {:x (dsim/poly-transition 0
+                                                                  [[[:once 10]
+                                                                    (fn-on-step 0)]
+                                                                   [[:repeat 2 10]
+                                                                    (fn-on-step 1)]])}}
+        states     (dsim/move-seq state
+                                  (range))
+        states'    (map first
+                        states)]
+    (reset! *a states)
+    (t/is (= 0
+             (:i-transition (nth states'
+                                 5)))
+          "Should be running the first sub-transition")
+    (t/is (= 1
+             (:i-transition (nth states'
+                                 10)))
+          "Should jump to the second sub-transition")
+    (t/is (= {:i-transition 1
+              :percent      0}
+             (-> state
+                 (dsim/move 10)
+                 (select-keys [:i-transition
+                               :percent])))
+          "Jumping straight to the second subtransition should work")))

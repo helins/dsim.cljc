@@ -7,10 +7,11 @@
 
 
 
-;;;;;;;;;; For keeping an alphabetical order when relevant
+;;;;;;;;;; For keeping alphabetical or logical order
 
 
-(declare transitions?)
+(declare move
+         transitions?)
 
 
 
@@ -144,6 +145,7 @@
 
 
     ([state data-path _step]
+
      (assoc-in state
                data-path
                data))))
@@ -268,48 +270,32 @@
 ;;;;;;;;;; Creating transitions
 
 
-(defn- -complete-transition
+(defn- -call-on-complete
 
   ;;
 
   [state data-path step on-complete]
 
-  (let [state' (dissoc-in state
-                          (transition-path data-path))]
-    (if on-complete
-      (on-complete state'
-                   data-path
-                   step)
-      state')))
+  (if on-complete
+    (on-complete state
+                 data-path
+                 step)
+    state))
+  
 
 
 
-
-(defn- -transition
+(defn- -remove-on-complete
 
   ;;
 
-  [first-step n-steps on-step on-complete]
+  [state data-path step on-complete]
 
-  (let [last-step'  (last-step first-step
-                               n-steps)
-        delta-steps (- last-step'
-                       first-step)]
-    (fn state-at-step [state data-path step]
-      (if (>= step
-              first-step)
-        (if (<= step
-                last-step')
-          (on-step state
-                   data-path
-                   (/ (- step
-                         first-step)
-                      delta-steps))
-          (-complete-transition state
-                                data-path
-                                step
-                                on-complete))
-        state))))
+  (-call-on-complete (dissoc-in state
+                                (transition-path data-path))
+                     data-path
+                     step
+                     on-complete))
 
 
 
@@ -335,11 +321,40 @@
 
 
 
+(defn- -regular-transition
+
+  ;;
+
+  [first-step n-steps on-step complete-transition on-complete]
+
+  (let [last-step'  (last-step first-step
+                               n-steps)
+        delta-steps (- last-step'
+                       first-step)]
+    (fn state-at-step [state data-path step]
+      (if (>= step
+              first-step)
+        (if (<= step
+                last-step')
+          (on-step state
+                   data-path
+                   (/ (- step
+                         first-step)
+                      delta-steps))
+          (complete-transition state
+                               data-path
+                               step
+                               on-complete))
+        state))))
+
+
+
+
 (defn- -repeating-transition
 
   ;;
 
-  [n-times first-step n-steps on-step on-complete]
+  [n-times first-step n-steps on-step complete-transition on-complete]
 
   (let [last-cycle-step (dec n-steps)]
     (fn state-at-step [state data-path step]
@@ -355,11 +370,41 @@
                      (/ (rem delta-first
                              n-steps)
                         last-cycle-step))
-            (-complete-transition state
-                                  data-path
-                                  step
-                                  on-complete)))
+            (complete-transition state
+                                 data-path
+                                 step
+                                 on-complete)))
         state))))
+
+
+
+
+(defn- -transition
+
+  ""
+
+  [first-step steps on-step complete-transition on-complete]
+
+  (let [n-steps (last steps)]
+    (when (<= n-steps
+              0)
+      (throw (IllegalArgumentException. "Number of steps must be > 0")))
+    (condp identical?
+           (first steps)
+      :endless (-endless-transition first-step
+                                    n-steps
+                                    on-step)
+      :once    (-regular-transition first-step
+                                    n-steps
+                                    on-step
+                                    complete-transition
+                                    on-complete)
+      :repeat  (-repeating-transition (second steps)
+                                      first-step
+                                      n-steps
+                                      on-step
+                                      complete-transition
+                                      on-complete))))
 
 
 
@@ -378,21 +423,50 @@
 
   ([first-step steps on-step on-complete]
 
-   (condp identical?
-          (first steps)
-     :endless (-endless-transition first-step
-                                    (second steps)
-                                    on-step)
-     :once    (-transition first-step
-                           (second steps)
-                           on-step
-                           on-complete)
-     :repeat  (-repeating-transition (second steps)
-                                     first-step
-                                     (nth steps
-                                          2)
-                                     on-step
-                                     on-complete))))
+   (-transition first-step
+                steps
+                on-step
+                -remove-on-complete
+                on-complete)))
+
+
+
+
+(defn poly-transition
+
+  ""
+
+  [first-step transition-vectors]
+
+  (if-some [[steps
+             on-step
+             on-complete] (first transition-vectors)]
+    (if (identical? (first steps)
+                    :endless)
+      (transition first-step
+                  steps
+                  on-step
+                  on-complete)
+      (-transition first-step
+                   steps
+                   on-step
+                   (fn complete-transition [state data-path step on-complete]
+                     (if-some [next-transition (poly-transition (+ first-step
+                                                                   (last steps))
+                                                                (rest transition-vectors))]
+                       (-call-on-complete (-> state
+                                              (assoc-in (transition-path data-path)
+                                                        next-transition)
+                                              (move step))
+                                          data-path
+                                          step
+                                          on-complete)
+                       (-remove-on-complete state
+                                            data-path
+                                            step
+                                            on-complete)))
+                   on-complete))
+    nil))
 
 
 
@@ -492,7 +566,7 @@
 
   [state step]
 
-  (reduce-kv (fn ??? [state k transition]
+  (reduce-kv (fn recur-over [state k transition]
                (-recur-move state
                             step
                             [k]
@@ -505,6 +579,8 @@
 
 
 (defn move-seq
+
+  ""
 
   [state step-seq]
 

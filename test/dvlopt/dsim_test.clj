@@ -334,39 +334,105 @@
     (t/is (= {:entity {:x :after}}
              (on-complete {:entity {:x :before}}
                           [:entity :x]
+                          nil
                           nil)))))
+
+
+
+
+(t/deftest last-step
+
+  (t/are [steps result]
+         (= result
+            (dsim/last-step 10
+                            steps))
+    [:once 12]    21
+    [:repeat 3 4] 21
+    [:endless 10] nil))
+
+
+
+
+(t/deftest n-steps
+
+  (t/are [steps result]
+         (= result
+            (dsim/n-steps steps))
+    [:once 15]    15
+    [:repeat 3 5] 15
+    [:endless 10] nil))
+
+
+
+
+(t/deftest poly-n-steps
+
+  (let [transition-vectors [[[:once 5]]
+                            [[:repeat 2 5]]]]
+    (t/is (= 15
+             (dsim/poly-n-steps transition-vectors)))
+    (t/is (nil? (dsim/poly-n-steps (conj transition-vectors
+                                        [[:endless]]))))))
 
 
 
 
 (t/deftest poly-transition
 
-  (let [fn-on-step (fn make-on-step [i-transition]
-                     (fn on-step [state data-path percent]
-                       (merge state
-                              {:i-transition i-transition
-                               :percent      percent})))
-        state      {dsim/transition-key {:x (dsim/poly-transition 0
-                                                                  [[[:once 10]
-                                                                    (fn-on-step 0)]
-                                                                   [[:repeat 2 10]
-                                                                    (fn-on-step 1)]])}}
-        states     (dsim/move-seq state
-                                  (range))
-        states'    (map first
-                        states)]
-    (t/is (= 0
-             (:i-transition (nth states'
-                                 5)))
-          "Should be running the first sub-transition")
-    (t/is (= 1
-             (:i-transition (nth states'
-                                 10)))
-          "Should jump to the second sub-transition")
-    (t/is (= {:i-transition 1
-              :percent      0}
-             (-> state
-                 (dsim/move 10)
-                 (select-keys [:i-transition
-                               :percent])))
-          "Jumping straight to the second subtransition should work")))
+  (let [fn-on-step         (fn make-on-step [i-transition]
+                             (fn on-step [state data-path percent]
+                               (merge state
+                                      {:i-transition i-transition
+                                       :percent      percent})))
+        transition-vectors [[[:once 10]
+                             (fn-on-step 0)]
+                            [[:repeat 2 10]
+                             (fn-on-step 1)]]]
+    ;; Testing :once
+    (let [state      {dsim/transition-key {:x (dsim/poly-transition 0
+                                                                    [:once]
+                                                                    transition-vectors)}}
+          states     (dsim/move-seq state
+                                    (range))
+          states'    (map first
+                          states)]
+      (t/is (= 0
+               (:i-transition (nth states'
+                                   5)))
+            "Should be running the first sub-transition")
+      (t/is (= 1
+               (:i-transition (nth states'
+                                   10)))
+            "Should jump to the second sub-transition")
+      (t/is (= {:i-transition 1
+                :percent      0}
+               (-> state
+                   (dsim/move 10)
+                   (select-keys [:i-transition
+                                 :percent])))
+            "Jumping straight to the second subtransition should work"))
+    ;; Testing :repeat
+    (let [state   {dsim/transition-key {:x (dsim/poly-transition 0
+                                                                 [:repeat 2]
+                                                                 transition-vectors)}}
+          states  (dsim/move-seq state
+                                 (range))
+          states' (map first
+                       states)]
+      (t/is (= 61
+               (count states))
+            "Number of steps should be all the transition steps + 1 completion one")
+      (t/is (not (dsim/in-transition? (nth states'
+                                           60)))
+            "After completing twice, the transition should be gone")
+      (t/is (every? true?
+                    (map (fn equal-data? [state state']
+                           (= (dissoc state
+                                      dsim/transition-key)
+                              (dissoc state'
+                                      dsim/transition-key)))
+                         (take 30
+                               states')
+                         (drop 30
+                               states')))
+            "After all first subtransitions completes, everything should be repeated"))))

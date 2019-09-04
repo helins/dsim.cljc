@@ -12,6 +12,8 @@
 
 (declare in-transition?
          move
+         n-steps
+         poly-transition
          transition-path)
 
 
@@ -147,9 +149,33 @@
 
     ([state data-path _step]
 
+     (assoc-data state
+                 data-path
+                 nil
+                 nil))
+
+
+    ([state data-path _completion-step _step]
+
      (assoc-in state
                data-path
                data))))
+
+
+
+
+;(defn fn-map-percent
+;
+;  ""
+;
+;  [map-percent]
+;
+;  (fn fn-on-step [on-step]
+;    (fn on-step' [state data-path percent]
+;      (on-step state
+;               data-path
+;               (map-percent percent)))))
+
 
 
 
@@ -181,10 +207,11 @@
     (case (count on-complete-vec')
       0 nil
       1 (first on-complete-vec')
-      (fn on-complete [state data-path step]
+      (fn on-complete [state data-path completion-step step]
         (reduce (fn next-on-complete [state' local-on-complete]
                   (local-on-complete state'
                                      data-path
+                                     completion-step
                                      step))
                 state
                 on-complete-vec')))))
@@ -200,10 +227,11 @@
 
    (hard-remove-subtree state
                         data-path
+                        nil
                         nil))
 
 
-  ([state data-path _step]
+  ([state data-path _completion-step _step]
 
    (-> state
        (dissoc-in data-path)
@@ -212,14 +240,55 @@
 
 
 
+(defn- -last-step
+
+  [first-step n-steps]
+
+  (+ first-step
+     (dec n-steps)))
+
+
+
+
 (defn last-step
 
   ""
 
-  [start n-steps]
+  [first-step steps]
 
-  (+ start
-     (dec n-steps)))
+  (some-> (n-steps steps)
+          (-last-step first-step)))
+
+
+
+
+(defn n-steps
+
+  ""
+
+  [steps]
+
+  (condp identical?
+         (first steps)
+    :endless nil
+    :once    (second steps)
+    :repeat  (* (second steps)
+                (last steps))))
+
+
+
+
+(defn poly-n-steps
+
+  ""
+
+  [transition-vectors]
+
+  (reduce (fn sum-steps [step-sum [steps]]
+            (some-> (n-steps steps)
+                    (+ step-sum)))
+          0
+          transition-vectors))
 
 
 
@@ -232,10 +301,11 @@
 
    (remove-data state
                 data-path
+                nil
                 nil))
 
 
-  ([state data-path _step]
+  ([state data-path _completion-step _step]
 
    (dissoc-in state
               data-path)))
@@ -251,10 +321,11 @@
 
    (remove-transition state
                       data-path
+                      nil
                       nil))
 
 
-  ([state data-path _step]
+  ([state data-path _completion-step _step]
 
    (dissoc-in state
               (transition-path data-path))))
@@ -270,10 +341,11 @@
 
    (remove-subtree state
                    data-path
+                   nil
                    nil))
 
 
-  ([state data-path _step]
+  ([state data-path _completion-step _step]
 
    (let [subtree-path (drop-last data-path)]
      (if (in-transition? state
@@ -305,6 +377,18 @@
 
 
 
+(defn- -in-transition?
+
+  ;;
+
+  [subtree]
+
+  (or (and (map? subtree)
+           (not (empty? subtree)))
+      (some? subtree)))
+
+
+
 
 (defn in-transition?
 
@@ -312,17 +396,14 @@
 
   ([state]
 
-   (not (empty? (get state
-                     transition-key))))
+   (-in-transition? (get state
+                         transition-key)))
 
 
   ([state path]
 
-   (let [transition (get-in state
-                            (transition-path path))]
-     (or (and (map? transition)
-              (not (empty? transition)))
-         (some? transition)))))
+   (-in-transition? (get-in state
+                            (transition-path path)))))
 
 
 
@@ -334,11 +415,12 @@
 
   ;;
 
-  [state data-path step on-complete]
+  [state data-path completion-step step on-complete]
 
   (if on-complete
     (on-complete state
                  data-path
+                 completion-step
                  step)
     state))
   
@@ -349,11 +431,12 @@
 
   ;;
 
-  [state data-path step on-complete]
+  [state data-path completion-step step on-complete]
 
   (-call-on-complete (dissoc-in state
                                 (transition-path data-path))
                      data-path
+                     completion-step
                      step
                      on-complete))
 
@@ -387,8 +470,8 @@
 
   [first-step n-steps on-step complete-transition on-complete]
 
-  (let [last-step'  (last-step first-step
-                               n-steps)
+  (let [last-step'  (-last-step first-step
+                                n-steps)
         delta-steps (- last-step'
                        first-step)]
     (fn state-at-step [state data-path step]
@@ -403,6 +486,7 @@
                       delta-steps))
           (complete-transition state
                                data-path
+                               (inc last-step')
                                step
                                on-complete))
         state))))
@@ -432,6 +516,9 @@
                         last-cycle-step))
             (complete-transition state
                                  data-path
+                                 (+ first-step
+                                    (* n-times
+                                       n-steps))
                                  step
                                  on-complete)))
         state))))
@@ -492,41 +579,130 @@
 
 
 
+(defn- -assoc-next-transition
+
+  ;;
+
+  [state data-path step transition]
+
+  (-> state
+      (assoc-in (transition-path data-path)
+                transition)
+      (move step)))
+
+
+
+
+(defn- -poly-transition
+
+  ""
+
+  [first-step transition-vectors complete-transitions]
+
+  (when-some [[steps
+               on-step
+               on-complete] (first transition-vectors)]
+      (if (identical? (first steps)
+                      :endless)
+        (transition first-step
+                    steps
+                    on-step
+                    on-complete)
+        (-transition first-step
+                     steps
+                     on-step
+                     (fn complete-transitions' [state data-path completion-step step on-complete]
+                       (let [next-transition (-poly-transition completion-step
+                                                               (rest transition-vectors)
+                                                               complete-transitions)
+                             [f
+                              state']        (if next-transition
+                                               [-call-on-complete
+                                                (-assoc-next-transition state
+                                                                        data-path
+                                                                        step
+                                                                        next-transition)]
+                                               [complete-transitions
+                                                state])]
+                         (f state'
+                            data-path
+                            completion-step
+                            step
+                            on-complete)))
+                     on-complete))))
+
+
+
+
+(defn- -endless-poly-transition
+
+  ;;
+
+  [first-step transition-vectors]
+
+  (-poly-transition first-step
+                    transition-vectors
+                    (fn complete-endless-transitions [state data-path completion-step step _on-complete]
+                      (-assoc-next-transition state
+                                              data-path
+                                              step
+                                              (-endless-poly-transition completion-step
+                                                                        transition-vectors)))))
+
+
+
+
+(defn- -regular-poly-transition
+
+  ;;
+
+  [first-step transition-vectors]
+
+  (-poly-transition first-step
+                    transition-vectors
+                    -remove-on-complete))
+
+
+
+
+(defn- -repeating-poly-transition
+
+  ;;
+
+  [n-times first-step transition-vectors]
+
+  (let [n-times' (dec n-times)]
+    (-poly-transition first-step
+                      transition-vectors
+                      (if (> n-times'
+                             0)
+                        (fn complete-repeating-transitions [state data-path completion-step step on-complete]
+                          (-assoc-next-transition state
+                                                  data-path
+                                                  step
+                                                  (-repeating-poly-transition n-times'
+                                                                              completion-step
+                                                                              transition-vectors)))
+                        -remove-on-complete))))
+
+
+
+
 (defn poly-transition
 
   ""
 
-  [first-step transition-vectors]
+  [first-step transition-type transition-vectors]
 
-  (if-some [[steps
-             on-step
-             on-complete] (first transition-vectors)]
-    (if (identical? (first steps)
-                    :endless)
-      (transition first-step
-                  steps
-                  on-step
-                  on-complete)
-      (-transition first-step
-                   steps
-                   on-step
-                   (fn complete-transition [state data-path step on-complete]
-                     (if-some [next-transition (poly-transition (+ first-step
-                                                                   (last steps))
-                                                                (rest transition-vectors))]
-                       (-call-on-complete (-> state
-                                              (assoc-in (transition-path data-path)
-                                                        next-transition)
-                                              (move step))
-                                          data-path
-                                          step
-                                          on-complete)
-                       (-remove-on-complete state
-                                            data-path
-                                            step
-                                            on-complete)))
-                   on-complete))
-    nil))
+  (condp identical?
+         (first transition-type)
+    :endless (-endless-poly-transition first-step
+                                       transition-vectors)
+    :once    (-regular-poly-transition first-step
+                                       transition-vectors)
+    :repeat  (-repeating-poly-transition (second transition-type)
+                                         first-step
+                                         transition-vectors)))
 
 
 

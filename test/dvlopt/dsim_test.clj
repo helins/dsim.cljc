@@ -10,7 +10,7 @@
 
 
 
-;;;;;;;;;;
+;;;;;;;;;; Utilities
 
 
 (t/deftest dissoc-in
@@ -66,11 +66,48 @@
 
 
 
+;;;;;;;;;; Helpers for transitions
+
+
+(def mirror-on-step
+
+  (dsim/fn-mirror (fn only-percent [_state _data-path percent]
+                    percent)))
+
+
+
+
+(t/deftest fn-assoc-data
+
+  (t/is (= :done
+           (-> {dsim/transition-key {:x (dsim/once 0
+                                                   5
+                                                   mirror-on-step
+                                                   (dsim/fn-assoc-data :done))}}
+               (dsim/move 6)
+               :x))))
+
+
+
+
+(t/deftest fn-on-complete
+
+  (let [on-complete (dsim/fn-on-complete [dsim/remove-subtree
+                                          (dsim/fn-assoc-data :after)])]
+    (t/is (= {:entity {:x :after}}
+             (on-complete {:entity {:x :before}}
+                          [:entity :x]
+                          nil
+                          nil)))))
+
+
+
+
 (t/deftest in-transition?
 
-  (let [transition (dsim/transition 0
-                                    [:once 10]
-                                    nil)
+  (let [transition (dsim/once 0
+                              10
+                              nil)
         state      {dsim/transition-key {:a transition
                                          :b {:c transition}
                                          :d nil}}]
@@ -85,95 +122,288 @@
 
 
 
-(def on-step
+(t/deftest remove-data
 
-  (dsim/fn-mirror (fn only-percent [_state _data-path percent]
-                    percent)))
-
-
-
-
-(t/deftest transition
-
-  (let [states (dsim/move-seq {dsim/transition-key {:percent (dsim/transition 0
-                                                                              [:endless 10]
-                                                                              (fn [state data-path percent]
-                                                                                (assoc-in state
-                                                                                          data-path
-                                                                                          percent)))}}
-                              (range))]
-    (t/is (= 1
-             (-> (nth states
-                      99)
-                 first
-                 :percent))
-          "Transition should be there and the :percent value reflect the end of a cycle"))
-  (let [states       (dsim/move-seq {dsim/transition-key {:n-cycles (dsim/transition 0
-                                                                                     [:repeat 3 10]
-                                                                                     (fn [state data-path percent]
-                                                                                       (if (= percent
-                                                                                              1)
-                                                                                         (update-in state
-                                                                                                    data-path
-                                                                                                    inc)
-                                                                                         state)))}
-                                     :n-cycles 0}
-                                    (range))
-        cycle-counts (map (comp :n-cycles
-                                first)
-                          states)]
-    (t/is (= 0
-             (nth cycle-counts
-                  5))
-          "Transition should be still in the first cycle")
-    (t/is (= 1
-             (nth cycle-counts
-                  9))
-          "First cycle should be completed")
-    (t/is (= 2
-             (nth cycle-counts
-                  19))
-          "Second cycle should be completed")
-    (t/is (= 3
-             (nth cycle-counts
-                  29))
-          "Third and last cycle should be completed")
-    (t/is (= 31
-             (count states))
-          "There should be 31 steps, 3 x 10 + 1 for `on-complete`")
-    (t/is (not (dsim/in-transition? (first (last states))))
-          "When finished, the transition should be removed")))
+  (t/is (not (contains? (-> {dsim/transition-key {:x (dsim/once 0
+                                                                5
+                                                                mirror-on-step
+                                                                dsim/remove-data)}}
+                            (dsim/move 5)
+                            (dsim/move 6))
+                        :x))))
 
 
 
 
-(def state
+(t/deftest remove-subtree
+
+  (t/is (not (contains? (-> {:a                  {:y 42}
+                             dsim/transition-key {:a {:x (dsim/once 0
+                                                                    5
+                                                                    mirror-on-step
+                                                                    dsim/remove-subtree)}}}
+                            (dsim/move 5)
+                            (dsim/move 6))
+                        :a))))
+
+
+
+
+;;;;;;;;;; Transitions
+
+
+(defn assoc-completion-step
+
+  ""
+
+  [state _data-path completion-step _step]
+
+  (assoc state
+         :completion-step
+         completion-step))
+
+
+
+
+(defn only-percents
+
+  [state+steps]
+
+  (map (comp :percent
+             first)
+       state+steps))
+
+
+
+
+(defn- -test-percent-cycle
+
+  ;;
+
+  [percents]
+
+  (t/are [step percent]
+            (= (double percent)
+               (double (nth percents
+                            step)))
+       0  0
+       2  0.2
+       5  0.5
+       7  0.7
+       10 1))
+
+
+
+(defn- -test-cycle-equality
+
+  [state+steps n-cycles n-steps]
+
+  (t/is (every? (fn equal-cycles? [[cycle-1 cycle-2]]
+                  (if cycle-2
+                    (= cycle-1
+                       cycle-2)
+                    true))
+                (take (dec n-cycles)
+                      (partition 2
+                                 (partition n-steps
+                                            (map (comp dsim/without-transitions
+                                                       first)
+                                                 state+steps)))))
+        "All repeating cycles should obviously produce the same data"))
+
+
+
+
+(defn- -test-finite-transition
+
+  ;;
+
+  [state+steps n-steps]
+
+  (let [last-state (first (last state+steps))]
+    (t/is (= (inc n-steps)
+             (count state+steps))
+          "There should be N-STEPS states + 1 completion step")
+    (t/is (not (dsim/in-transition? last-state))
+          "After running all steps, the transition should be cleared")
+    (t/is (= n-steps
+             (:completion-step last-state))
+          "Completion step should be equal the the number of steps (because steps start from 0)")))
+
+
+
+
+(t/deftest infinite
+
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:percent (dsim/infinite 0
+                                                                                 11
+                                                                                 mirror-on-step)}}
+                                   (range))]
+    (-test-percent-cycle (only-percents state+steps))
+    (-test-cycle-equality state+steps
+                          11
+                          11)))
+
+
+
+
+(t/deftest once
+
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:percent (dsim/once 0
+                                                                             11
+                                                                             mirror-on-step
+                                                                             assoc-completion-step)}}
+                                   (range))
+        percents    (only-percents state+steps)
+        last-state  (first (last state+steps))]
+    (-test-finite-transition state+steps
+                             11)
+    (-test-percent-cycle percents)))
+
+
+
+
+(t/deftest repeating
+
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:percent (dsim/repeating 0
+                                                                                  2
+                                                                                  11
+                                                                                  mirror-on-step
+                                                                                  assoc-completion-step)}}
+                                   (range))]
+    (-test-finite-transition state+steps
+                             22)
+    (-test-percent-cycle (only-percents state+steps))
+    (-test-cycle-equality state+steps
+                          2
+                          11)))
+
+
+
+
+(def fn-transitions
+
+  ;;
+
+  (let [fn-on-step  (fn fn-on-step [i-transition]
+                      (fn on-step [state _data-path percent]
+                        (merge state
+                               {:i-transition i-transition
+                                :percent      percent})))]
+   [(dsim/fn-once 11
+                  (fn-on-step 0))
+    (dsim/fn-repeating 2
+                       11
+                       (fn-on-step 1))]))
+
+
+
+
+(t/deftest poly
+
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly 0
+                                                                       fn-transitions
+                                                                       assoc-completion-step)}}
+                                   (range))]
+    (-test-finite-transition state+steps
+                             33)
+    (doseq [transition-cycle (partition 11
+                                        state+steps)]
+      (-test-percent-cycle (only-percents transition-cycle)))
+    (-test-cycle-equality (drop 11
+                                state+steps)
+                          2
+                          11)))
+
+
+
+
+(t/deftest poly-infinite
+
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly-infinite 0
+                                                                                fn-transitions)}}
+                                   (range))]
+    (-test-cycle-equality state+steps
+                          10
+                          33)))
+
+
+
+
+(t/deftest poly-repeating
+
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly-repeating 0
+                                                                                 2
+                                                                                 fn-transitions
+                                                                                 assoc-completion-step)}}
+                                   (range))]
+    (-test-finite-transition state+steps
+                             66)
+    (-test-cycle-equality state+steps
+                          2
+                          33)))
+
+
+
+
+(t/deftest nested-poly
+
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly 0
+                                                                       (conj fn-transitions
+                                                                             (dsim/fn-poly fn-transitions
+                                                                                           assoc-completion-step)))}}
+                                   (range))]
+    (-test-finite-transition state+steps
+                             66)
+    (-test-cycle-equality state+steps
+                          2
+                          33)))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;;;;;;;;;; Moving states
+
+
+(def moving-state
 
   ;;
 
   (dsim/merge-transitions {}
-                          {:a {:x (dsim/transition 0
-                                                   [:once 5]
-                                                   on-step)
-                               :y (dsim/transition 0
-                                                   [:once 9]
-                                                   on-step
-                                                   dsim/remove-data)}
-                           :b (dsim/transition 0
-                                               [:once 15]
-                                               on-step)}))
+                          {:a {:x (dsim/once 0
+                                             5
+                                             mirror-on-step)
+                               :y (dsim/once 0
+                                             9
+                                             mirror-on-step
+                                             dsim/remove-data)}
+                           :b (dsim/once 0
+                                         15
+                                         mirror-on-step)}))
 
 
 
 
 (t/deftest move
 
-  (t/is (not (contains? (get (dsim/move {dsim/transition {:x nil}}
+  (t/is (not (contains? (get (dsim/move {dsim/transition-key {:x nil}}
                                         0)
                              dsim/transition-key)
                         :x))
         "A nil transition should be removed")
-  (let [state-5 (dsim/move state
+  (let [state-5 (dsim/move moving-state
                            4)]
     (t/is (= 1
              (:x (:a state-5)))
@@ -210,16 +440,16 @@
 
 (t/deftest move-seq
 
-  (t/is (empty? (dsim/move-seq state
+  (t/is (empty? (dsim/move-seq moving-state
                                nil))
         "Without any step, the sequence of states should be empty")
-  (let [state-seq (dsim/move-seq state
+  (let [state-seq (dsim/move-seq moving-state
 								 (range 5))]
 	(t/is (every? true?
 				  (map (fn equal? [[state-at-step step]]
-					     (= state-at-step
-							(dsim/move state
-									   step)))
+					     (= (dsim/without-transitions state-at-step)
+							(dsim/without-transitions (dsim/move moving-state
+									                             step))))
 					   state-seq))
   		  "For those N steps, the current state does not depend on the previous one, hence following a sequence of states should match
            jumping directly from state 0 to state N.")))
@@ -229,16 +459,16 @@
 
 (t/deftest move-events
 
-  (t/is (empty? (dsim/move-events state
+  (t/is (empty? (dsim/move-events moving-state
                                   nil
                                   nil
                                   nil))
         "Without any step, the sequence of states should be empty")
-  (t/is (= (dsim/move-events state
+  (t/is (= (dsim/move-events moving-state
                              (range)
                              nil
                              nil)
-           (dsim/move-seq state
+           (dsim/move-seq moving-state
                           (range)))
         "Without any event, `move-events` should behave just like `move-seq`")
   (let [events       (for [i (range 5)]
@@ -256,10 +486,9 @@
                                      handle-event)))
           "Events should be handled regardless of transitions")
     (t/is (= 1
-             (-> (dsim/move-events (dsim/merge-transitions {}
-                                                           {:x (dsim/transition 0
-                                                                                [:once 10]
-                                                                                on-step)})
+             (-> (dsim/move-events {dsim/transition-key {:x (dsim/once 0
+                                                                       10
+                                                                       mirror-on-step)}}
                                    (range)
                                    events
                                    handle-event)
@@ -268,10 +497,9 @@
                  :x))
           "The :x transition should finish even though there are less events than the number of steps required for completion")
     (let [[half-done-state
-           step]           (last (dsim/move-events (dsim/merge-transitions {}
-                                                                           {:x (dsim/transition 0
-                                                                                                [:once 3]
-                                                                                                on-step)})
+           step]           (last (dsim/move-events {dsim/transition-key {:x (dsim/once 0
+                                                                                       3
+                                                                                       mirror-on-step)}}
                                                    (range 2)
                                                    events
                                                    handle-event))]
@@ -281,158 +509,3 @@
       (t/is (< (:x half-done-state)
                1)
             "The transition should not be finished"))))
-
-
-
-
-(t/deftest remove-data
-
-  (t/is (not (contains? (-> (dsim/merge-transitions {}
-                                                    {:x (dsim/transition 0
-                                                                         [:once 5]
-                                                                         on-step
-                                                                         dsim/remove-data)})
-                            (dsim/move 5)
-                            (dsim/move 6))
-                        :x))))
-
-
-
-
-(t/deftest remove-subtree
-
-  (t/is (not (contains? (-> (dsim/merge-transitions {:a {:y 42}}
-                                                    {:a {:x (dsim/transition 0
-                                                                             [:once 5]
-                                                                             on-step
-                                                                             dsim/remove-subtree)}})
-                            (dsim/move 5)
-                            (dsim/move 6))
-                        :a))))
-
-
-
-
-(t/deftest fn-assoc-data
-
-  (t/is (= :done
-           (-> (dsim/merge-transitions {}
-                                       {:x (dsim/transition 0
-                                                            [:once 5]
-                                                            on-step
-                                                            (dsim/fn-assoc-data :done))})
-               (dsim/move 6)
-               :x))))
-
-
-
-
-(t/deftest fn-on-complete
-
-  (let [on-complete (dsim/fn-on-complete [dsim/remove-subtree
-                                          (dsim/fn-assoc-data :after)])]
-    (t/is (= {:entity {:x :after}}
-             (on-complete {:entity {:x :before}}
-                          [:entity :x]
-                          nil
-                          nil)))))
-
-
-
-
-(t/deftest last-step
-
-  (t/are [steps result]
-         (= result
-            (dsim/last-step 10
-                            steps))
-    [:once 12]    21
-    [:repeat 3 4] 21
-    [:endless 10] nil))
-
-
-
-
-(t/deftest n-steps
-
-  (t/are [steps result]
-         (= result
-            (dsim/n-steps steps))
-    [:once 15]    15
-    [:repeat 3 5] 15
-    [:endless 10] nil))
-
-
-
-
-(t/deftest poly-n-steps
-
-  (let [transition-vectors [[[:once 5]]
-                            [[:repeat 2 5]]]]
-    (t/is (= 15
-             (dsim/poly-n-steps transition-vectors)))
-    (t/is (nil? (dsim/poly-n-steps (conj transition-vectors
-                                        [[:endless]]))))))
-
-
-
-
-(t/deftest poly-transition
-
-  (let [fn-on-step         (fn make-on-step [i-transition]
-                             (fn on-step [state data-path percent]
-                               (merge state
-                                      {:i-transition i-transition
-                                       :percent      percent})))
-        transition-vectors [[[:once 10]
-                             (fn-on-step 0)]
-                            [[:repeat 2 10]
-                             (fn-on-step 1)]]]
-    ;; Testing :once
-    (let [state      {dsim/transition-key {:x (dsim/poly-transition 0
-                                                                    [:once]
-                                                                    transition-vectors)}}
-          states     (dsim/move-seq state
-                                    (range))
-          states'    (map first
-                          states)]
-      (t/is (= 0
-               (:i-transition (nth states'
-                                   5)))
-            "Should be running the first sub-transition")
-      (t/is (= 1
-               (:i-transition (nth states'
-                                   10)))
-            "Should jump to the second sub-transition")
-      (t/is (= {:i-transition 1
-                :percent      0}
-               (-> state
-                   (dsim/move 10)
-                   (select-keys [:i-transition
-                                 :percent])))
-            "Jumping straight to the second subtransition should work"))
-    ;; Testing :repeat
-    (let [state   {dsim/transition-key {:x (dsim/poly-transition 0
-                                                                 [:repeat 2]
-                                                                 transition-vectors)}}
-          states  (dsim/move-seq state
-                                 (range))
-          states' (map first
-                       states)]
-      (t/is (= 61
-               (count states))
-            "Number of steps should be all the transition steps + 1 completion one")
-      (t/is (not (dsim/in-transition? (nth states'
-                                           60)))
-            "After completing twice, the transition should be gone")
-      (t/is (every? true?
-                    (map (fn equal-data? [state state']
-                           (= (dissoc state
-                                      dsim/transition-key)
-                              (dissoc state'
-                                      dsim/transition-key)))
-                         (take 30
-                               states')
-                         (drop 30
-                               states')))
-            "After all first subtransitions completes, everything should be repeated"))))

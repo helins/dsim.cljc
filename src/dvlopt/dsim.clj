@@ -120,12 +120,20 @@
 
   ([min-value max-value]
 
-   (let [value-range (- max-value
-                        min-value)]
-     (fn to-scalar [percent]
-       (+ (* percent
-             value-range)
-          min-value)))))
+   (let [delta (- max-value
+                  min-value)]
+     (fn to-scalar
+       
+       ([percent]
+
+        (+ (* percent
+              delta)
+           min-value))
+
+
+       ([_state _data-path percent]
+
+        (to-scalar percent))))))
 
 
 
@@ -204,6 +212,18 @@
               (map-percent state
                            data-path
                            percent))))
+
+
+
+
+(defn fn-mirror-percent
+
+  ""
+
+  [map-only-percent]
+
+  (fn-mirror (fn only-percent [_state _data-path percent]
+               (map-only-percent percent))))
 
 
 

@@ -219,6 +219,16 @@
     (case (count on-complete-vec')
       0 nil
       1 (first on-complete-vec')
+      2 (let [[on-complete-1
+               on-complete-2] on-complete-vec']
+          (fn piped-on-complete [state data-path completion-step step]
+            (-> state
+                (on-complete-1 data-path
+                               completion-step
+                               step)
+                (on-complete-2 data-path
+                               completion-step
+                               step))))
       (fn on-complete [state data-path completion-step step]
         (reduce (fn next-on-complete [state' local-on-complete]
                   (local-on-complete state'

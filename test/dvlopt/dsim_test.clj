@@ -98,7 +98,17 @@
              (on-complete {:entity {:x :before}}
                           [:entity :x]
                           nil
-                          nil)))))
+                          nil))
+          "With two `on-complete`s"))
+  (let [on-complete (dsim/fn-on-complete [dsim/remove-subtree
+                                          (dsim/fn-assoc-data :after)
+                                          (dsim/fn-assoc-data :after-2)])]
+    (t/is (= {:entity {:x :after-2}}
+             (on-complete {:entity {:x :before}}
+                          [:entity :x]
+                          nil
+                          nil))
+          "With three `on-complete`s")))
 
 
 

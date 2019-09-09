@@ -311,7 +311,8 @@
 
 (t/deftest poly
 
-  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly 0
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly {}
+                                                                       0
                                                                        fn-transitions
                                                                        assoc-completion-step)}}
                                    (range))]
@@ -330,7 +331,8 @@
 
 (t/deftest poly-infinite
 
-  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly-infinite 0
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly-infinite {}
+                                                                                0
                                                                                 fn-transitions)}}
                                    (range))]
     (-test-cycle-equality state+steps
@@ -342,7 +344,8 @@
 
 (t/deftest poly-repeating
 
-  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly-repeating 0
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly-repeating {}
+                                                                                 0
                                                                                  2
                                                                                  fn-transitions
                                                                                  assoc-completion-step)}}
@@ -358,7 +361,8 @@
 
 (t/deftest nested-poly
 
-  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly 0
+  (let [state+steps (dsim/move-seq {dsim/transition-key {:x (dsim/poly {}
+                                                                       0
                                                                        (conj fn-transitions
                                                                              (dsim/fn-poly fn-transitions
                                                                                            assoc-completion-step)))}}

@@ -244,36 +244,6 @@
 
 
 
-(defn fn-on-complete
-
-  ""
-
-  [on-complete-vec]
-
-  (let [on-complete-vec' (filterv some?
-                                  on-complete-vec)]
-    (case (count on-complete-vec')
-      0 nil
-      1 (first on-complete-vec')
-      2 (let [[on-complete-1
-               on-complete-2] on-complete-vec']
-          (fn piped-on-complete [state data-path completion-step step]
-            (-> state
-                (on-complete-1 data-path
-                               completion-step
-                               step)
-                (on-complete-2 data-path
-                               completion-step
-                               step))))
-      (fn reduce-on-complete [state data-path completion-step step]
-        (reduce (fn next-on-complete [state' local-on-complete]
-                  (local-on-complete state'
-                                     data-path
-                                     completion-step
-                                     step))
-                state
-                on-complete-vec')))))
-
 
 
 
@@ -318,6 +288,39 @@
           transition-key
           deep-merge
           transitions))
+
+
+
+
+(defn pipe-complete
+
+  ""
+
+  [on-completes]
+
+  (let [on-completes' (filterv some?
+                               on-completes)]
+    (case (count on-completes')
+      0 nil
+      1 (first on-completes')
+      2 (let [[on-complete-1
+               on-complete-2] on-completes']
+          (fn piped-on-complete [state data-path completion-step step]
+            (-> state
+                (on-complete-1 data-path
+                               completion-step
+                               step)
+                (on-complete-2 data-path
+                               completion-step
+                               step))))
+      (fn reduce-on-complete [state data-path completion-step step]
+        (reduce (fn next-on-complete [state' local-on-complete]
+                  (local-on-complete state'
+                                     data-path
+                                     completion-step
+                                     step))
+                state
+                on-completes')))))
 
 
 
@@ -563,8 +566,8 @@
       (once first-step
             n-steps
             on-step
-            (fn-on-complete [on-complete
-                             on-complete-2]))))))
+            (pipe-complete [on-complete
+                            on-complete-2]))))))
 
 
 
@@ -640,8 +643,8 @@
                  n-times
                  n-steps
                  on-step
-                 (fn-on-complete [on-complete
-                                  on-complete-2]))))))
+                 (pipe-complete [on-complete
+                                 on-complete-2]))))))
 
 
 
@@ -724,8 +727,8 @@
       (poly state
             first-step
             fn-transitions
-            (fn-on-complete [on-complete
-                             on-complete-2]))))))
+            (pipe-complete [on-complete
+                            on-complete-2]))))))
 
 
 
@@ -881,8 +884,8 @@
       (poly-repeating state
                       first-step
                       fn-transitions
-                      (fn-on-complete [on-complete
-                                       on-complete-2]))))))
+                      (pipe-complete [on-complete
+                                      on-complete-2]))))))
 
 
 

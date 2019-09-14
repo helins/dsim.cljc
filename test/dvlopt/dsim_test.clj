@@ -168,19 +168,19 @@
 
 
 
-(t/deftest fn-on-complete
+(t/deftest pipe-complete
 
-  (let [on-complete (dsim/fn-on-complete [dsim/remove-subtree
-                                          (dsim/fn-assoc-data :after)])]
+  (let [on-complete (dsim/pipe-complete [dsim/remove-subtree
+                                         (dsim/fn-assoc-data :after)])]
     (t/is (= {:entity {:x :after}}
              (on-complete {:entity {:x :before}}
                           [:entity :x]
                           nil
                           nil))
           "With two `on-complete`s"))
-  (let [on-complete (dsim/fn-on-complete [dsim/remove-subtree
-                                          (dsim/fn-assoc-data :after)
-                                          (dsim/fn-assoc-data :after-2)])]
+  (let [on-complete (dsim/pipe-complete [dsim/remove-subtree
+                                         (dsim/fn-assoc-data :after)
+                                         (dsim/fn-assoc-data :after-2)])]
     (t/is (= {:entity {:x :after-2}}
              (on-complete {:entity {:x :before}}
                           [:entity :x]

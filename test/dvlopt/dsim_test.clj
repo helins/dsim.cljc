@@ -66,13 +66,91 @@
 
 
 
-;;;;;;;;;; Helpers for transitions
+;;;;;;;;;; Scaling percents and values
+
+
+(t/deftest scale
+
+  (t/are [percent scaled]
+         (= (double scaled)
+            (double (dsim/scale 0
+                                100
+                                percent)))
+    0    0
+    0.25 25
+    0.5  50
+    1    100)
+  (t/are [value scaled]
+         (= (double scaled)
+            (double (dsim/scale 0
+                                1000
+                                0
+                                100
+                                value)))
+    0   0
+    25  250
+    50  500
+    100 1000)
+  (t/are [value scaled]
+         (= (double scaled)
+            (double (dsim/scale 0
+                                100
+                                0
+                                1000
+                                value)))
+    0    0
+    250  25
+    500  50
+    1000 100)
+  (t/are [value scaled]
+         (= (double scaled)
+            (double (dsim/scale 100
+                                0
+                                0
+                                1000
+                                value)))
+    0    100
+    250  75
+    500  50
+    1000 0))
+
+
+
+
+
+
+(t/deftest fn-scale
+
+  (let [scale (dsim/fn-scale 0
+                             1000
+                             0
+                             100)]
+    (t/are [value scaled]
+           (= (double scaled)
+              (double (scale value)))
+      0   0
+      25  250
+      50  500
+      100 1000))
+ (let [scale-percent (dsim/fn-scale 0
+                                    100)]
+    (t/are [percent scaled]
+           (= (double scaled)
+              (double (scale-percent percent)))
+      0    0
+      0.25 25
+      0.5  50
+      1    100)))
+
+
+
+
+;;;;;;;;;; Helpers for transitions and state management
 
 
 (def mirror-on-step
 
-  (dsim/fn-mirror (fn only-percent [_state _data-path percent]
-                    percent)))
+  (dsim/fn-mirror-percent identity))
 
 
 

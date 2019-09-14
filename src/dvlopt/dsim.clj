@@ -84,61 +84,108 @@
 
 
 
-;;;;;;;;;; Scaling percents
+;;;;;;;;;; Scaling percents and values
 
 
-(defn percent->scalar
-
-  ""
-
-  ([value-range percent]
-
-   (* percent
-      value-range))
-
-
-  ([min-value max-value percent]
-
-   (+ (percent->scalar (- max-value
-                          min-value)
-                       percent)
-      min-value)))
-
-
-
-
-(defn fn-percent->scalar
+(defn- -scale-percent
 
   ""
 
-  ([value-range]
+  [scaled-a scaled-delta percent]
 
-   (fn to-scalar [percent]
-     (* percent
-        value-range)))
+  (+ (* percent
+        scaled-delta)
+     scaled-a))
 
 
-  ([min-value max-value]
 
-   (let [delta (- max-value
-                  min-value)]
-     (fn to-scalar
-       
+
+(defn- -scale
+
+  ;;
+
+  [scaled-a scaled-delta a delta x]
+
+  (-scale-percent scaled-a
+                  scaled-delta
+                  (/ (- x 
+                        a)
+                     delta)))
+
+
+
+(defn scale
+
+  ""
+
+  ([scaled-a scaled-b percent]
+
+   (-scale-percent scaled-a
+                   (- scaled-b
+                      scaled-a)
+                   percent))
+
+
+  ([scaled-a scaled-b a b x]
+
+   (-scale scaled-a
+           (- scaled-b
+              scaled-a)
+           a
+           (- b
+              a)
+           x)))
+
+
+
+
+(defn fn-scale
+
+  ""
+
+  ([scaled-a scaled-b]
+   
+   (let [scaled-delta (- scaled-b
+                         scaled-a)]
+     (fn scale-percent
+        
        ([percent]
 
-        (+ (* percent
-              delta)
-           min-value))
+        (-scale-percent scaled-a
+                        scaled-delta
+                        percent))
 
 
        ([_state _data-path percent]
 
-        (to-scalar percent))))))
+        (scale-percent percent)))))
+
+
+  ([scaled-a scaled-b a b]
+
+   (let [delta        (- b
+                         a)
+         scaled-delta (- scaled-b
+                         scaled-a)]
+     (fn scale' 
+
+       ([x]
+
+        (-scale scaled-a
+                scaled-delta
+                a
+                delta
+                x))
+
+
+       ([_state _data-path x]
+
+        (scale' x))))))
 
 
 
 
-;;;;;;;;;; Helpers for transitions
+;;;;;;;;;; Helpers for transitions and state management
 
 
 (defn fn-assoc-data

@@ -10,20 +10,10 @@
 ;;;;;;;;;; For keeping alphabetical or logical order
 
 
-(declare 
-         transition-key
-         transition-path
-         poly-infinite
+(declare poly-infinite
          poly-repeating
-         )
-  ;in-transition?
-         ;move
-         ;n-steps
-         ;poly-transition
-         ;transition-path
-         ;
-         ;poly-infinite
-         ;poly-repeating)
+         transition-key
+         transition-path)
 
 
 
@@ -67,6 +57,16 @@
                   v-2))
               hmap-1
               hmap-2))
+
+
+
+
+(defn last-step
+
+  [first-step n-steps]
+
+  (+ first-step
+     (dec n-steps)))
 
 
 
@@ -141,17 +141,6 @@
 ;;;;;;;;;; Helpers for transitions
 
 
-(defn data-path
-
-  ""
-
-  [transition-path]
-
-  (rest transition-path))
-
-
-
-
 (defn fn-assoc-data
 
   ""
@@ -162,40 +151,20 @@
 
     ([state data-path]
 
-     (assoc-data state
-                 data-path
-                 nil))
+     (assoc-in state
+               data-path
+               data))
 
 
     ([state data-path _step]
 
      (assoc-data state
-                 data-path
-                 nil
-                 nil))
+                 data-path))
 
 
     ([state data-path _completion-step _step]
-
-     (assoc-in state
-               data-path
-               data))))
-
-
-
-
-;(defn fn-map-percent
-;
-;  ""
-;
-;  [map-percent]
-;
-;  (fn fn-on-step [on-step]
-;    (fn on-step' [state data-path percent]
-;      (on-step state
-;               data-path
-;               (map-percent percent)))))
-
+     (assoc-data state
+                 data-path))))
 
 
 
@@ -249,7 +218,7 @@
                 (on-complete-2 data-path
                                completion-step
                                step))))
-      (fn on-complete [state data-path completion-step step]
+      (fn reduce-on-complete [state data-path completion-step step]
         (reduce (fn next-on-complete [state' local-on-complete]
                   (local-on-complete state'
                                      data-path
@@ -292,16 +261,6 @@
 
 
 
-(defn last-step
-
-  [first-step n-steps]
-
-  (+ first-step
-     (dec n-steps)))
-
-
-
-
 (defn merge-transitions
 
   ""
@@ -322,16 +281,19 @@
 
   ([state data-path]
 
+   (dissoc-in state
+              data-path))
+
+  ([state data-path _percent]
+
    (remove-data state
-                data-path
-                nil
-                nil))
+                data-path))
 
 
   ([state data-path _completion-step _step]
 
-   (dissoc-in state
-              data-path)))
+   (remove-data state
+                data-path)))
 
 
 
@@ -342,16 +304,21 @@
 
   ([state data-path]
 
+   (dissoc-in state
+              (transition-path data-path)))
+
+
+  ([state data-path _percent]
+
    (remove-transition state
-                      data-path
-                      nil
-                      nil))
+                      data-path))
 
 
   ([state data-path _completion-step _step]
 
-   (dissoc-in state
-              (transition-path data-path))))
+   (remove-transition state
+                      data-path)))
+
 
 
 
@@ -362,20 +329,24 @@
 
   ([state data-path]
 
-   (remove-subtree state
-                   data-path
-                   nil
-                   nil))
-
-
-  ([state data-path _completion-step _step]
-
    (let [subtree-path (drop-last data-path)]
      (if (in-transition? state
                          subtree-path)
        state
        (dissoc-in state
-                  subtree-path)))))
+                  subtree-path))))
+
+
+  ([state data-path _percent]
+
+   (remove-subtree state
+                   data-path))
+
+
+  ([state data-path _completion-step _step]
+
+   (remove-subtree state
+                   data-path)))
 
 
 

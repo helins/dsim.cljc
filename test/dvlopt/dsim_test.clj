@@ -300,11 +300,11 @@
                         (merge state
                                {:i-transition i-transition
                                 :percent      percent})))]
-   [(dsim/fn-once 11
-                  (fn-on-step 0))
-    (dsim/fn-repeating 2
-                       11
-                       (fn-on-step 1))]))
+    [(dsim/fn-once 11
+                   (fn-on-step 0))
+     (dsim/fn-repeating 2
+                        11
+                        (fn-on-step 1))]))
 
 
 

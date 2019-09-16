@@ -170,7 +170,7 @@
 
 (t/deftest pipe-complete
 
-  (let [on-complete (dsim/pipe-complete [dsim/remove-subtree
+  (let [on-complete (dsim/pipe-complete [dsim/remove-pre-data
                                          (dsim/fn-assoc-data :after)])]
     (t/is (= {:entity {:x :after}}
              (on-complete {:entity {:x :before}}
@@ -178,7 +178,7 @@
                           nil
                           nil))
           "With two `on-complete`s"))
-  (let [on-complete (dsim/pipe-complete [dsim/remove-subtree
+  (let [on-complete (dsim/pipe-complete [dsim/remove-pre-data
                                          (dsim/fn-assoc-data :after)
                                          (dsim/fn-assoc-data :after-2)])]
     (t/is (= {:entity {:x :after-2}}
@@ -223,13 +223,13 @@
 
 
 
-(t/deftest remove-subtree
+(t/deftest remove-pre-data
 
   (t/is (not (contains? (-> {:a                  {:y 42}
                              dsim/transition-key {:a {:x (dsim/once 0
                                                                     5
                                                                     mirror-on-step
-                                                                    dsim/remove-subtree)}}}
+                                                                    dsim/remove-pre-data)}}}
                             (dsim/move 5)
                             (dsim/move 6))
                         :a))))

@@ -1,6 +1,74 @@
 (ns dvlopt.dsim
 
-  " ? "
+  "Idiomatic, purely-functional discrete event simulation.
+  
+
+   A transition is pure stepwise function gradually modifying some arbitrary state map. Transitions are part of the state itself
+   and are located under the `transition-key` key. They can be organized in arbitrarily nested maps. It is both common and desired
+   for transitions to mirror the data they act upon :
+
+
+     {dvlopt.dsim/transition-key {:asteroids {42 {:x ...
+                                                  :y ...}}}
+      :asteroids {42 {:x 450
+                      :y 1420}}}
+
+   This pattern is so common that in this example, [:asteroids 42 :x] would be called the `data-path` of the :x transition of
+   asteroid 42. Such a transition accepts 3 arguments: a state map, its data-path, and a step. It returns a new state which, although
+   not enforced, should somehow modify the :x value of asteroid 42.
+  
+   For doing so, a transition is created by providing an `on-step` function which also accepts 3 arguments: a state map, the data-path,
+   and a percentage of completion. This percentage depends on the first step of the transition, how many steps it lasts, and the
+   current step:  (current-step - first-step) / n-steps.
+
+   After reaching 100%, if it was provided in the first place, the `on-complete` function of the transition is called. It accepts
+   4 arguments: the current state map, the data-path, the completion step, and the current step. It is useful when action must be
+   taken after a transition, for instance for creating a new one. If some steps are missed or skipped, the completion step and the
+   current step will not match. Hence it is useful to provide both. Completed transitions are removed automatically.
+
+     Cf. `infinite`
+         `once`
+         `repeating`
+
+   A poly-transition is a higher-order transition composed of several transitions. At the end of each sub-transition, the poly-transition
+   takes care of creating the next one at the right moment. Hence, it would be easy to animate asteroid 42 to sequentially move in
+   different directions, or to sequentially rotate in some complex manner. It is also trivial to create nested poly-transitions.
+
+     Cf. `poly`
+         `poly-infinite`
+         `poly-repeating`
+
+
+   Scaling a percentage to a value such as the :x position of an asteroid is facilitated by using `scale` and `fn-scale`. It is often
+   needed for a transition to behave non-linearly. This can be simply done by modifying the percentage of completion, which is a linear
+   progression, to be non-linear. For example, if an asteroid has to move faster and faster along the :x axis from 500 to 1000 pixels in a
+   100 steps starting from step 0:
+
+     (dvlopt.dsim/once 0
+                       100
+                       (let [scale' (dvlopt.dsim/fn-scale 500
+                                                          1000)]
+                         (fn on-step [state data-path percent]
+                           (assoc-in state
+                                     data-path
+                                     (scale' (Math/pow percent
+                                                       2))))))
+
+   The most straightforward way to add or remove transitions to a state is by using `merge-transitions`. A series of helpers for `on-step`
+   and `on-complete` functions is provided. For example, improving the last example and removing the asteroid when done :
+
+     (dvlopt.dsim/once 0
+                       100
+                       (dsim/fn-mirror-percent (comp (dvlopt.dsim/fn-scale 500
+                                                                           1000)
+                                                     #(Math/pow %
+                                                                2)))
+                       dsim/remove-pre-data)
+
+
+   The most basic way of moving a state to some step is done by using `move`. `move-seq` facilitates the process of iteratively moving
+   through a sequence of steps. However, the most useful way is probably `move-events` which also takes into account events happening at
+   some particular steps, each modifying the state is some way. Any non-trivial simulation involves such events."
 
   {:author "Adam Helinski"})
 
@@ -23,7 +91,16 @@
 
 (defn dissoc-in
 
-  ""
+  "Deep dissoc, natural counterpart of Clojure's `assoc-in`.
+  
+   Empty maps are removed.
+  
+  
+   Ex. (dissoc-in {:a {:b 42}
+                   :c :ok}
+                  [:a :b])
+  
+       => {:c :ok}"
 
   [hmap [k & ks :as path]]
 
@@ -45,7 +122,7 @@
 
 (defn deep-merge
 
-  ""
+  "Deep merges two maps."
 
   [hmap-1 hmap-2]
 
@@ -63,6 +140,8 @@
 
 (defn last-step
 
+  "Simplify provides the last step of a transition given its first-step and the number of steps it lasts."
+
   [first-step n-steps]
 
   (+ first-step
@@ -73,7 +152,16 @@
 
 (defn millis->n-steps
 
-  ""
+  "Computes the number of steps needed for completing a transition in `millis` milliseconds for a phenomenon,
+   such as the frame-rate, happening `hz` per second.
+  
+  
+   Ex. Computing the number of frames needed in order to last 2000 milliseconds with a frame-rate of 60.
+
+       (millis->n-steps 2000
+                        60)
+  
+       => 120"
 
   [millis hz]
 
@@ -89,7 +177,7 @@
 
 (defn- -scale-percent
 
-  ""
+  ;; Scale a percent value to an arbitrary range.
 
   [scaled-a scaled-delta percent]
 
@@ -102,7 +190,7 @@
 
 (defn- -scale
 
-  ;;
+  ;; Scale an arbitrary value to another range.
 
   [scaled-a scaled-delta a delta x]
 
@@ -116,7 +204,25 @@
 
 (defn scale
 
-  ""
+  "3 args : scales a `percent` value to a value between `scaled-a` and `scaled-b`.
+
+   5 args : scales the `x` value between `a` and `b` to be between `scaled-a` and `scaled-b`.
+
+  
+   Ex. (scale 0
+              1000
+              0.5)
+
+       => 500
+
+
+       (scale 0
+              1000
+              0
+              100
+              50)
+
+       => 500"
 
   ([scaled-a scaled-b percent]
 
@@ -141,7 +247,9 @@
 
 (defn fn-scale
 
-  ""
+  "Exactly like `scale` but does not accept a value to scale. Instead, returns a function which does so.
+  
+   Particularly useful when working with the percentage of completion of transitions."
 
   ([scaled-a scaled-b]
    
@@ -190,7 +298,12 @@
 
 (defn fn-assoc-data
 
-  ""
+  "Returns a function assoc'ing the given data at the data-path of a transition.
+  
+   Useful when some steps might be skipped but it is needed for a transition to reach 100%. For instance,
+   during a live animation, a frame will probably not be drawn at the exact millisecond a transition should
+   complete but some milliseconds later. The returned function can be used as an `on-complete` function
+   so that the state will always reflect the last step of such a transition."
 
   [data]
 
@@ -218,7 +331,10 @@
 
 (defn fn-mirror
 
-  ""
+  "Given an `on-step` function returning some arbitrary value instead of a new state, returns an `on-step`
+   function assoc'ing this value at the data-path in the state.
+  
+   Idiomatic."
 
   [map-percent]
 
@@ -234,7 +350,10 @@
 
 (defn fn-mirror-percent
 
-  ""
+  "Behaves just like `fn-mirror` but the function provided in the first place simply maps a percent value to
+   an arbitrary one instead of being an `on-step` function.
+  
+   Small convenient helper when the current state and data-path are not needed."
 
   [map-only-percent]
 
@@ -249,7 +368,7 @@
 
 (defn- -in-transition?
 
-  ;;
+  ;; Checks if there are any transitions.
 
   [subtree]
 
@@ -262,7 +381,7 @@
 
 (defn in-transition?
 
-  ""
+  "Is the given state or some part of it currently in transition?"
 
   ([state]
 
@@ -270,17 +389,19 @@
                          transition-key)))
 
 
-  ([state path]
+  ([state data-path]
 
    (-in-transition? (get-in state
-                            (transition-path path)))))
+                            (transition-path data-path)))))
 
 
 
 
 (defn merge-transitions
 
-  ""
+  "Deep merges the provided - often nested - map of transitions in the given state.
+  
+   Very useful for adding or removing several transitions at once. Indeed, nil values are simply removed when moving the state."
 
   [state transitions]
 
@@ -294,7 +415,9 @@
 
 (defn pipe-complete
 
-  ""
+  "Given a collection of `on-complete` functions, returns an `on-complete` function piping arguments into this collection.
+  
+   Nil values are simply filtered-out."
 
   [on-completes]
 
@@ -327,7 +450,9 @@
 
 (defn remove-data
 
-  ""
+  "Uses `dissoc-in` for removing what is at some data-path.
+  
+   More useful when used as an `on-complete` function and the data needs to be cleaned once the transition completes."
 
   ([state data-path]
 
@@ -350,7 +475,7 @@
 
 (defn remove-transition
 
-  ""
+  "Removes a transition given the data-path."
 
   ([state data-path]
 
@@ -373,9 +498,17 @@
 
 
 
-(defn remove-subtree
+(defn remove-pre-data
 
-  ""
+  "A vast majority of modeling involves some form of entities. It is also very common for such entities to be removed once all
+   their transitions completes, meaning they cannot evolve anymore. This function, used as an `on-complete` function, does exactly that.
+
+   For instance, modeling asteroids as {:asteroids {42 {:x 542
+                                                        :y 1000}}} having :x and :y transitions.
+
+   Once it cannot move anymore, an asteroid must be cleaned (ie. removed from the state). By providing this function as an `on-complete`
+   function to every :x and :y transition garantees that. It will use `dissoc-in` for removing [:asteroids 42] once it does not have
+   any transitions anymore."
 
   ([state data-path]
 
@@ -389,21 +522,21 @@
 
   ([state data-path _percent]
 
-   (remove-subtree state
-                   data-path))
+   (remove-pre-data state
+                    data-path))
 
 
   ([state data-path _completion-step _step]
 
-   (remove-subtree state
-                   data-path)))
+   (remove-pre-data state
+                    data-path)))
 
 
 
 
 (def transition-key
 
-  ""
+  "All transitions belonging to a state must be under this key."
 
   ::transitions)
 
@@ -412,7 +545,7 @@
 
 (defn transition-path
 
-  ""
+  "Given a data-path, returns a transition-path"
 
   [data-path]
 
@@ -424,7 +557,7 @@
 
 (defn without-transitions
 
-  ""
+  "Returns the given state without its transitions."
 
   [state]
 
@@ -439,7 +572,7 @@
 
 (defn- -complete-transition
 
-  ;;
+  ;; Completes a mono-transitions.
 
   [state data-path completion-step step transition on-complete]
 
@@ -457,7 +590,9 @@
 
 (defn infinite
 
-  ;;
+  "Returns a transition endlessly repeating cycles of `n-steps` steps.
+  
+   Obviously, it does not need an `on-complete` function."
 
   [first-step n-steps on-step]
 
@@ -478,7 +613,13 @@
 
 (defn fn-infinite
 
-  ""
+  "Returns a function returning an infinite transition.
+
+   Useful for poly-transitions.
+
+  
+   Cf. `infinite`
+       `poly`"
 
   [n-steps on-step]
 
@@ -502,7 +643,7 @@
 
 (defn once
 
-  ;;
+  "Returns a transition lasting `n-steps` steps."
 
   ([first-step n-steps on-step]
 
@@ -541,7 +682,13 @@
 
 (defn fn-once
 
-  ""
+  "Returns a function returning a transition.
+  
+   Useful for poly-transitions.
+
+  
+   Cf. `once`
+       `poly`"
 
   ([n-steps on-step]
 
@@ -574,7 +721,7 @@
 
 (defn repeating
 
-  ;;
+  "Returns a transition repeating `n-steps` steps `n-times` times."
 
   ([first-step n-times n-steps on-step]
 
@@ -616,7 +763,13 @@
 
 (defn fn-repeating
 
-  ;;
+  "Returns a function returning a repeating transition.
+  
+   Useful for poly-transitions.
+  
+  
+   Cf. `repeating`
+       `poly`"
 
   ([n-times n-steps on-step]
 
@@ -651,7 +804,7 @@
 
 (defn- -assoc-next-transition
 
-  ;;
+  ;; Assoc'es the given transition and also realizes it for the given step.
 
   [state data-path step transition]
 
@@ -667,7 +820,11 @@
 (defn poly
 
 
-  ""
+  "Returns a poly-transition which will follow a collection of functions producing transitions.
+
+   Those functions will be provided with the state at the moment the transition is created, the first-step 
+   of this transition and an `on-complete` function which must not be ignored. This `on-complete` function
+   ensures that the next transition, if there is one, will be created."
 
   ([state first-step fn-transitions]
 
@@ -703,7 +860,12 @@
 
 (defn fn-poly
 
-  ""
+  "Returns a function returning a poly-transition.
+  
+   Useful for nested poly-transitions.
+  
+  
+   Cf. `poly`"
 
   ([fn-transitions]
 
@@ -735,7 +897,7 @@
 
 (defn- -poly-infinite
 
-  ""
+  ;; Helper for `poly-infinite`.
 
   [state first-step all-fn-transitions fn-transitions]
 
@@ -759,7 +921,7 @@
 
 (defn poly-infinite
 
-  ""
+  "Union of `infinite` and `poly`. Returns a poly-transition endlessly repeating."
 
   [state first-step fn-transitions]
 
@@ -773,7 +935,13 @@
 
 (defn fn-poly-infinite
 
-  ""
+  "Returns a function returning an infinite poly-transition.
+  
+   Useful for nested poly-transitions.
+  
+  
+   Cf. `poly`
+       `poly-infinite`"
 
   [fn-transitions]
 
@@ -796,7 +964,7 @@
 
 (defn- -poly-repeating
 
-  ;;
+  ;; Helper for `poly-repeating`.
 
   [state first-step n-times all-fn-transitions fn-transitions on-complete]
 
@@ -834,7 +1002,7 @@
 
 (defn poly-repeating
 
-  ""
+  "Union of `repeating` and `poly`. Returns a poly-transition repeating `n-times`."
 
   ([state first-step n-times fn-transitions]
 
@@ -859,7 +1027,13 @@
 
 (defn fn-poly-repeating
 
-  ""
+  "Returns a function returning a repeating poly-transition.
+ 
+   Useful for nested poly-transitions.
+  
+  
+   Cf. `poly`
+       `poly-repeating`"
 
   ([n-times fn-transitions]
 
@@ -895,7 +1069,7 @@
 
 (defn- -recur-move
 
-  ;;
+  ;; Helper for `move`.
 
   [state step path transition]
 
@@ -919,7 +1093,9 @@
 
 (defn move
 
-  ""
+  "Moves a state to the given step (ie. returns a new state representing the given state at the given step).
+  
+   It belongs to the user to ensure steps are not skipped if it is the needed behavior."
 
   [state step]
 
@@ -937,7 +1113,10 @@
 
 (defn move-seq
 
-  ""
+  "Returns a lazy sequence of [state' step] by iteratively moving the given state following the given sequence of steps.
+  
+   Stops as soon as it reaches the end of `step-seq` or it detects there no more transitions, meaning it is useless to
+   continue."
 
   [state step-seq]
 
@@ -957,7 +1136,7 @@
 
 (def step-key
 
-  ""
+  "When using `move-events`, each event must have a step assigned by this key."
 
   ::step)
 
@@ -966,11 +1145,25 @@
 
 (defn move-events
 
-  ""
+  "Merely moving a state is often not enough. Typically, some events happen which modify the state in some way, add, remove,
+   or replace transitions. This function does exactly that.
+  
+   It behaves like `move-seq` in that it moves an initial state following a sequence of steps. However, the state is also modified
+   by following a sequence of events and an event handler.
+  
+   An event is an arbitrary map which describes something happening at some arbitrary step. As such, it must have a step associated
+   under the `step-key` key. Events are assumed to be sorted in chronological order (ie. by step).
+
+   `handle-event` takes the current state and an event, it must return a new state. It is called everytime an event happens.
+  
+
+   Like `move-seq`, returns a lazy sequence of [state' step]."
+
 
   ;; A bit ugly, but functional and somewhat efficient.
 
   ;; TODO. Should throw when ::step is missing from an event ?
+
 
   [state step-seq events handle-event]
 

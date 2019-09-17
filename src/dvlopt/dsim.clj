@@ -719,6 +719,19 @@
 
 
 
+(defn- -validate-n-times
+
+  ;; Ensures repeating transitions happen more than once.
+
+  [n-times]
+
+  (when (<= n-times
+            1)
+    (throw (IllegalArgumentException. "`n-times` must be > 1"))))
+
+
+
+
 (defn repeating
 
   "Returns a transition repeating `n-steps` steps `n-times` times."
@@ -734,6 +747,7 @@
 
   ([first-step n-times n-steps on-step on-complete]
 
+   (-validate-n-times n-times) 
    (let [last-cycle-step (dec n-steps)]
      (fn repeating-transition [state data-path step]
        (if (>= step
@@ -955,6 +969,7 @@
 
 
     ([state first-step _on-complete]
+
      (poly-infinite state
                     first-step
                     fn-transitions))))
@@ -981,11 +996,12 @@
                                                                       on-complete)
                                                      (when (> n-times'
                                                               0)
-                                                       (poly-repeating state'
-                                                                       completion-step
-                                                                       n-times'
-                                                                       all-fn-transitions
-                                                                       on-complete)))]
+                                                       (-poly-repeating state'
+                                                                        completion-step
+                                                                        n-times'
+                                                                        all-fn-transitions
+                                                                        all-fn-transitions
+                                                                        on-complete)))]
                          (-assoc-next-transition state'
                                                  data-path
                                                  step
@@ -1014,7 +1030,8 @@
 
 
   ([state first-step n-times fn-transitions on-complete]
-
+   
+   (-validate-n-times n-times)
    (-poly-repeating state
                     first-step
                     n-times
@@ -1159,11 +1176,7 @@
 
    Like `move-seq`, returns a lazy sequence of [state' step]."
 
-
   ;; A bit ugly, but functional and somewhat efficient.
-
-  ;; TODO. Should throw when ::step is missing from an event ?
-
 
   [state step-seq events handle-event]
 
@@ -1173,8 +1186,10 @@
         (loop [events'2 events'
                state'   state]
           (let [event (first events'2)]
-            (if (<= (get event
-                         step-key)
+            (if (<= (or (get event
+                             step-key)
+                        (throw (IllegalArgumentException. "Event does not have a step")))
+
                     step)
               (let [state-after-event (handle-event state'
                                                     event)]

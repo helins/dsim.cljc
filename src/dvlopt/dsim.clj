@@ -602,10 +602,10 @@
              first-step)
        (on-step state
                 data-path
-                (/ (rem (- step
-                           first-step)
-                        n-steps)
-                   last-cycle-step))
+                (double (/ (rem (- step
+                                   first-step)
+                                n-steps)
+                           last-cycle-step)))
        state))))
 
 
@@ -666,9 +666,9 @@
                  last-step')
            (on-step state
                     data-path
-                    (/ (- step
-                          first-step)
-                       delta-steps))
+                    (double (/ (- step
+                                  first-step)
+                               delta-steps)))
            (-complete-transition state
                                  data-path
                                  (inc last-step')
@@ -759,9 +759,9 @@
                    n-times)
              (on-step state
                       data-path
-                      (/ (rem delta-first
-                              n-steps)
-                         last-cycle-step))
+                      (double (/ (rem delta-first
+                                      n-steps)
+                                 last-cycle-step)))
              (-complete-transition state
                                    data-path
                                    (+ first-step

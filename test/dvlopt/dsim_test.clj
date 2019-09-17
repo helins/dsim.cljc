@@ -497,7 +497,7 @@
         "A nil transition should be removed")
   (let [state-5 (dsim/move moving-state
                            4)]
-    (t/is (= 1
+    (t/is (= 1.0
              (:x (:a state-5)))
           "Value of :x should reflect that the transition is complete")
     (t/is (= 0.5
@@ -577,7 +577,7 @@
                                      events
                                      handle-event)))
           "Events should be handled regardless of transitions")
-    (t/is (= 1
+    (t/is (= 1.0
              (-> (dsim/move-events {dsim/transition-key {:x (dsim/once 0
                                                                        10
                                                                        mirror-on-step)}}

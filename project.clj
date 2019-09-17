@@ -1,5 +1,5 @@
 (defproject dvlopt/dsim
-            "0.0.0-alpha0"
+            "0.0.0"
 
   :description  "Idiomatic and purely functional discrete event simulation"
   :url          "https://github.com/dvlopt/dsim.clj"

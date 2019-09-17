@@ -1,5 +1,8 @@
 # dvlopt.dsim
 
+[![Clojars
+Project](https://img.shields.io/clojars/v/dvlopt/dsim.svg)](https://clojars.org/dvlopt/dsim)
+
 ![](http://www.classicgaming.cc/classics/asteroids/images/asteroids-arcade-screenshot.jpg)
 
 For animations, games, and scientific purposes.
@@ -15,6 +18,8 @@ We will need this:
 ```clj
 (require '[dvlopt.dsim :as dsim])
 ```
+
+Read the [full API](https://dvlopt.github.io/doc/clojure/dvlopt/dsim/).
 
 ### Transitions
 

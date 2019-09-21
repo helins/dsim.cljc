@@ -19,7 +19,11 @@ We will need this:
 (require '[dvlopt.dsim :as dsim])
 ```
 
-Read the [full API](https://dvlopt.github.io/doc/clojure/dvlopt/dsim/).
+Here is the [full API](https://dvlopt.github.io/doc/clojure/dvlopt/dsim/).
+
+The following instructions might be more lengthy than absolutely needed but once
+understood, the user will be able to create any complex animation or simulation
+in a simple and composable fashion.
 
 ### Transitions
 
@@ -43,7 +47,7 @@ This mirroring pattern is so common that, for instance, the path leading to an
 :x value would be called the "data-path" (ie. [:asteroids 42 :x]). A transition,
 once it is created, takes 3 arguments: the state it needs to probably modify,
 its data-path, and the current step. A step represents some discrete point in
-time. In a live animation, that would most likely the current millisecond.
+time. In a live animation, that would most likely be the current millisecond.
 
 ```clj
 ;; Let us add a transition starting from step 0, lasting 2000 steps, and moving
@@ -94,8 +98,18 @@ Those higher-order transitions are created by providing a sequence of functions
 returning transitions. After each such "sub-transition", the poly-transition
 take care of creating and adding the next "sub-transition" by calling the next
 function in the sequence. 3 arguments are provided to those functions: the state
-at that moment, the current step, and an `on-complete` function whose purpose is
-to - sort of recursively - repeat this process for the next "sub-transition".
+at that moment, what should be the first step of the created "sub-transition",
+and an `on-complete` function whose purpose is to - sort of recursively - repeat
+this process for the next "sub-transition".
+
+There are several reasons why a poly-transition follows a sequence of functions
+returning transitions rather than prepared ones . One reason is that the user
+does not need to mention what is the exact first-step of each sub-transition, it
+is provided as an argument to the functions depending on when the previous
+sub-transition ends. Another one is that such functions can be reused anywhere
+else. Yet another one is that the state is very often needed to create the
+transition (eg. fetching the current position of an asteroid). The state passed
+to those functions is always up-to-date.
 
 ```clj
 ;; While it simply moves on its X axis, we want asteroid 42 to move on its Y
@@ -126,6 +140,11 @@ to - sort of recursively - repeat this process for the next "sub-transition".
                                                                  500
                                                                  percent))))])))
 ```
+
+Unlike for basic transitions, we pass the current state to `dsim/poly`. Remember
+that those functions producing transitions receive the current state as an
+argument. Therefore, we must provide it for the first function in the sequence
+in order to bootstrap the poly-transition.
 
 Similarly to basic transitions, there exists 3 kinds of poly-transitions:
 
@@ -160,16 +179,20 @@ instance, we could use the ol' quadratic function as such:
 
 The library provides a series of functions for removing boilerplate. For
 example, you have probably noticed we always use `assoc-in` with the data-path
-in our `on-step` functions. Here is how we could use the library for doing
-everything we have done so far at once:
+in our `on-step` functions. We do so because we use the mirroring pattern
+exposed at the beginning of those instructions. However, some reason could lead
+us to organize things differently if needed. Hence, the mirroring pattern is not
+enforced and the user has the liberty to do as it pleases. We can use some
+utility functions from the library to simplify the mirroring pattern as well as
+a few other things:
 
 ```clj
 ;; First, we merge our transitions with the current state which is simply an
 ;; empty map at this point. Our `on-step` functions are very declarative, they
 ;; take care of mapping the percentage of completion to a pixel value, linearly
-;; or not. Our transitions are also provided with a pre-existing `on-complete`
-;; function which will entirely remove our asteroid from the state only when all
-;; its transitions are done.
+;; or not, and assoc'ing this value at the data-path. Our transitions are also
+;; provided with a pre-existing `on-complete` function which will entirely
+;; remove our asteroid from the state only when all its transitions are done.
 
 (def state
      (dsim/merge-transitions
@@ -191,6 +214,8 @@ everything we have done so far at once:
                                                                                             500)))]
                                       dsim/remove-pre-data)}}}))
 ```
+
+Refer to the API for other utilities.
 
 ### Moving the state through "time"
 
@@ -214,7 +239,7 @@ other words, our asteroid has begun moving. Often, there is no need for moving
 step by step by ourselves. We can use the following function for mapping a
 sequence of steps to a lazy sequence of [state' step]:
 
-```
+```clj
 (def simple-simulation
      (dsim/move-seq state
                     (range)))
@@ -228,11 +253,12 @@ our asteroid stops moving.
 
 This is a bit too easy. In real use, such as in the context of a game or any
 non-trivial animation, events happen and they modify the state. For instance, if
-a gamer presses the "jump" button, its character must indeed jump in the game.
-Such events must be associated with a step and be handled properly. In the
-context of a game, our state could be in an atom. When the "jump" button is
-pressed, we can `swap!` this atom and add a transition - starting from the
-current millisecond - to our character so that it jumps.
+a gamer presses the "jump" button, the on-screen character must indeed jump in
+the game. Such events must be associated with a step and be handled properly.
+Our state could be in an atom. We would move our state whenever a frame is
+drawn, providing as a step the current time in milliseconds. Everytime the
+"jump" button is pressed, we `swap!` this atom and add a transition to our
+character so that it jumps.
 
 Nonetheless, when drawing an animation a posteriori or doing some scientific
 simulation, we often have the events in advance. It becomes tricky to take care
@@ -315,7 +341,7 @@ say we want to create a short film of moving asteroids:
 ;; All right, now we can lazily compute our sequence of [state' step]. Our
 ;; events will handled when needed. Although we provide an infinite range of
 ;; steps, the sequence stops as soon as there are no more events and all
-;; transitions finish, meaning the state cannot evolve anymore.
+;; transitions finish, meaning the state is stable and cannot evolve anymore.
 
 (def simulation
      (dsim/move-events (initial-state events)
@@ -347,7 +373,7 @@ say we want to create a short film of moving asteroids:
 
 ### In conclusion
 
-By being built as it is, this library offers an easy and efficient way or
+By being built as it is, this library offers an easy and efficient way for
 writing transitions while remaining particularily flexible if the user needs to
 handle some special case. In the end, it is just functions calling functions,
 nothing magic.

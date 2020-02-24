@@ -536,7 +536,7 @@
 
 (def transition-key
 
-  "All transitions belonging to a state must be under this key."
+  "All transitions belonging to a state map must be under this key."
 
   ::transitions)
 
@@ -572,7 +572,9 @@
 
 (defn- -complete-transition
 
-  ;; Completes a mono-transitions.
+  ;; Completes a mono-transition.
+
+  ;; TODO. `transition` not needed?!
 
   [state data-path completion-step step transition on-complete]
 
@@ -818,7 +820,9 @@
 
 (defn- -assoc-next-transition
 
-  ;; Assoc'es the given transition and also realizes it for the given step.
+  ;; Assoc'es the given transition and also realizes it for the given step, thus returning a new state.
+  ;;
+  ;; Helper for poly-transitions.
 
   [state data-path step transition]
 
@@ -832,7 +836,6 @@
 
 
 (defn poly
-
 
   "Returns a poly-transition which will follow a collection of functions producing transitions.
 

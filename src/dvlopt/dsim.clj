@@ -68,7 +68,9 @@
 
    The most basic way of moving a state to some step is done by using `move`. `move-seq` facilitates the process of iteratively moving
    through a sequence of steps. However, the most useful way is probably `move-events` which also takes into account events happening at
-   some particular steps, each modifying the state is some way. Any non-trivial simulation involves such events."
+   some particular steps, each modifying the state is some way. Any non-trivial simulation involves such events.
+  
+   Sometimes, the order of the transitions matters. If so, one can simply use `priority-map`."
 
   {:author "Adam Helinski"})
 
@@ -563,6 +565,50 @@
 
   (dissoc state
           transition-key))
+
+
+
+
+;;;;;;;;;; Prioritizing transitions
+
+
+(defn priority
+
+  "Returns the priority value associated with the given key."
+
+  [k]
+
+  (::priority (meta k)))
+
+
+
+
+(defn with-priority
+
+  "Associates a priority value to the given key, typically a symbol. In any case, it must support meta.
+  
+   Cf. `priority`
+       `priority-map`"
+
+  [k priority]
+
+  (vary-meta k
+             assoc
+             ::priority
+             priority))
+
+
+
+
+(def priority-map
+
+  "A priority state map is a map sorted by the priority values assigned to its keys using `with-priority`.
+  
+   Useful when transitions need to happen in a specific order."
+
+  (sorted-map-by (fn compare-priorities [k-1 k-2]
+                   (compare (priority k-1)
+                            (priority k-2)))))
 
 
 

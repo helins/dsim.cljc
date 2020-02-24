@@ -1,11 +1,12 @@
 (ns dvlopt.dsim-test
 
-  ""
-
   {:author "Adam Helinski"}
 
-  (:require [clojure.test :as t]
-            [dvlopt.dsim  :as dsim]))
+  (:require [clojure.test                    :as t]
+            [clojure.test.check.clojure-test :as tt]
+            [clojure.test.check.generators   :as gen]
+            [clojure.test.check.properties   :as prop]
+            [dvlopt.dsim                     :as dsim]))
 
 
 
@@ -242,7 +243,7 @@
 
 (defn assoc-completion-step
 
-  ""
+  ;;
 
   [state _data-path completion-step _step]
 
@@ -283,6 +284,8 @@
 
 
 (defn- -test-cycle-equality
+
+  ;;
 
   [state+steps n-cycles n-steps]
 
@@ -454,18 +457,6 @@
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 ;;;;;;;;;; Moving states
 
 
@@ -601,3 +592,46 @@
       (t/is (< (:x half-done-state)
                1)
             "The transition should not be finished"))))
+
+
+
+
+;;;;;;;;;; Priority maps
+
+
+(defn priority-symbol
+
+  [priority]
+
+  (symbol (str "s"
+               priority)))
+
+
+
+
+(tt/defspec with-priority
+
+  ;; Ensuring a priority is well assigned to a symbol.
+
+  (prop/for-all [priority gen/int]
+    (= (dsim/priority (dsim/with-priority (priority-symbol priority)
+                                          priority))
+       priority)))
+
+
+
+
+(tt/defspec priority-map
+
+  ;; Ensuring keys are being sorted by priorities.
+
+  (prop/for-all [priorities (gen/vector gen/int)]
+    (= (vals (reduce (fn add-key [priority-map priority]
+                       (assoc priority-map
+                              (dsim/with-priority (priority-symbol priority)
+                                                  priority)
+                              priority))
+                     dsim/priority-map
+                     priorities))
+       (not-empty (sort (into #{}
+                             priorities))))))

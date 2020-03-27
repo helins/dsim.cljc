@@ -1,6 +1,6 @@
 (ns user
 
-  "For daydreaming in the repl."
+  "For daydreaming in the REPL." 
 
   (:require [clojure.spec.alpha              :as s]
             [clojure.spec.gen.alpha          :as gen]
@@ -11,7 +11,8 @@
             [clojure.test                    :as t]
             [criterium.core                  :as ct]
             [dvlopt.dsim                     :as dsim]
-            [dvlopt.dsim-test                :as dsim-test]))
+            [dvlopt.dsim-test                :as dsim-test]
+            [taoensso.nippy                  :as nippy]))
 
 
 
@@ -19,7 +20,15 @@
 ;;;;;;;;;;
 
 
+
+
+
+
+
+
 (comment
   
+
+
 
   )

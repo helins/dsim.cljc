@@ -8,7 +8,8 @@
   :dependencies [[org.clojure/clojure "1.10.1"]]
   :profiles     {:dev {:source-paths ["dev"]
                        :main         user
-                       :dependencies [[criterium              "0.4.4"]
+                       :dependencies [[com.taoensso/nippy     "2.14.0"]
+                                      [criterium              "0.4.4"]
                                       [org.clojure/test.check "0.10.0-alpha3"]]
                        :plugins      [[lein-codox      "0.10.5"]
                                       [venantius/ultra "0.5.2"]]

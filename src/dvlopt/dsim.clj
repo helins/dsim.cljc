@@ -1,164 +1,311 @@
 (ns dvlopt.dsim
 
-  "Idiomatic, purely-functional discrete event simulation.
-  
+  "Idiomatic, purely-functional discrete event simulation."
 
-   A transition is pure stepwise function gradually modifying some arbitrary state map. Transitions are part of the state itself
-   and are located under the `transition-key` key. They can be organized in arbitrarily nested maps. It is both common and desired
-   for transitions to mirror the data they act upon :
+  {:author "Adam Helinski"}
 
-
-     {dvlopt.dsim/transition-key {:asteroids {42 {:x ...
-                                                  :y ...}}}
-      :asteroids {42 {:x 450
-                      :y 1420}}}
-
-   This pattern is so common that in this example, [:asteroids 42 :x] would be called the `data-path` of the :x transition of
-   asteroid 42. Such a transition accepts 3 arguments: a state map, its data-path, and a step. It returns a new state which, although
-   not enforced, should somehow modify the :x value of asteroid 42.
-  
-   For doing so, a transition is created by providing an `on-step` function which also accepts 3 arguments: a state map, the data-path,
-   and a percentage of completion. This percentage depends on the first step of the transition, how many steps it lasts, and the
-   current step:  (current-step - first-step) / n-steps.
-
-   After reaching 100%, if it was provided in the first place, the `on-complete` function of the transition is called. It accepts
-   4 arguments: the current state map, the data-path, the completion step, and the current step. It is useful when action must be
-   taken after a transition, for instance for creating a new one. If some steps are missed or skipped, the completion step and the
-   current step will not match. Hence it is useful to provide both. Completed transitions are removed automatically.
-
-     Cf. `infinite`
-         `once`
-         `repeating`
-
-   A poly-transition is a higher-order transition composed of several transitions. At the end of each sub-transition, the poly-transition
-   takes care of creating the next one at the right moment. Hence, it would be easy to animate asteroid 42 to sequentially move in
-   different directions, or to sequentially rotate in some complex manner. It is also trivial to create nested poly-transitions.
-
-     Cf. `poly`
-         `poly-infinite`
-         `poly-repeating`
-
-
-   Scaling a percentage to a value such as the :x position of an asteroid is facilitated by using `scale` and `fn-scale`. It is often
-   needed for a transition to behave non-linearly. This can be simply done by modifying the percentage of completion, which is a linear
-   progression, to be non-linear. For example, if an asteroid has to move faster and faster along the :x axis from 500 to 1000 pixels in a
-   100 steps starting from step 0:
-
-     (dvlopt.dsim/once 0
-                       100
-                       (let [scale' (dvlopt.dsim/fn-scale 500
-                                                          1000)]
-                         (fn on-step [state data-path percent]
-                           (assoc-in state
-                                     data-path
-                                     (scale' (Math/pow percent
-                                                       2))))))
-
-   The most straightforward way to add or remove transitions to a state is by using `merge-transitions`. A series of helpers for `on-step`
-   and `on-complete` functions is provided. For example, improving the last example and removing the asteroid when done :
-
-     (dvlopt.dsim/once 0
-                       100
-                       (dsim/fn-mirror-percent (comp (dvlopt.dsim/fn-scale 500
-                                                                           1000)
-                                                     #(Math/pow %
-                                                                2)))
-                       dsim/remove-pre-data)
-
-
-   The most basic way of moving a state to some step is done by using `move`. `move-seq` facilitates the process of iteratively moving
-   through a sequence of steps. However, the most useful way is probably `move-events` which also takes into account events happening at
-   some particular steps, each modifying the state is some way. Any non-trivial simulation involves such events.
-  
-   Sometimes, the order of the transitions matters. If so, one can simply use `priority-map`."
-
-  {:author "Adam Helinski"})
+  (:import clojure.lang.PersistentQueue))
 
 
 
 
-;;;;;;;;;; For keeping alphabetical or logical order
-
-
-(declare poly-infinite
-         poly-repeating
-         transition-key
-         transition-path)
+;; TODO. Error handling in metadata.
+;; TODO. Hack persistent queues so that they can also act as a stack?
+;; TODO. Graph of ranks by logical path using Stuart Sierra's dependency lib.
+;; TODO. Data-driven (ie. serializable).
+;; TOOD. Parallelize by ranks?
 
 
 
 
-;;;;;;;;;; Utilities
+;;;;;;;;;; Gathering all declarations
+
+
+(declare e-update
+         path
+         wq-vary-meta)
+
+
+
+
+;;;;;;;;;; Handling trees
+
+
+(defn- -dissoc-in
+
+  ;; Cf. `dissoc-in`
+
+  [hmap [k & ks]]
+
+  (if (seq ks)
+    (let [v (get hmap
+                 k)]
+      (if (map? v)
+        (let [hmap-v (-dissoc-in v
+                                 ks)]
+          (if (empty? hmap-v)
+            (dissoc hmap
+                    k)
+            (assoc hmap
+                   k
+                   hmap-v)))
+        hmap))
+    (dissoc hmap
+            k)))
+
+
 
 
 (defn dissoc-in
 
   "Deep dissoc, natural counterpart of Clojure's `assoc-in`.
   
-   Empty maps are removed.
+   <!> Keys with nil values or empty maps are removed.
   
   
-   Ex. (dissoc-in {:a {:b 42}
+   Eg. (dissoc-in {:a {:b 42}
                    :c :ok}
                   [:a :b])
   
        => {:c :ok}"
 
-  [hmap [k & ks :as path]]
+  [hmap path]
 
-  (if-not ks
-    (dissoc hmap
-            k)
-    (let [hmap-rest (dissoc-in (get hmap
-                                    k)
-                               ks)]
-      (if (empty? hmap-rest)
-        (dissoc hmap
-                k)
-        (assoc hmap
-               k
-               hmap-rest)))))
+  (if (seq path)
+    (-dissoc-in hmap
+                path)
+    hmap))
+
+
+
+
+(defn- -update-some-in
+
+  ;;
+
+  [hmap [k & ks :as path] f]
+
+  (if (contains? hmap
+                 k)
+    (if-some [v (if (seq ks)
+                  (not-empty (-update-some-in (get hmap
+                                                   k)
+                                              ks
+                                              f))
+                  (f (get hmap
+                          k)))]
+      (assoc hmap
+             k
+             v)
+      (dissoc hmap
+              k))
+    (if-some [v (f nil)]
+      (assoc-in hmap
+                path
+                v)
+      hmap)))
+
+
+
+
+(defn update-some-in
+
+  ""
+
+  [hmap path f]
+
+  (if (seq path)
+    (-update-some-in hmap
+                     path
+                     f)
+    hmap))
 
 
 
 
 (defn deep-merge
 
-  "Deep merges two maps."
+  ;; TODO. Move to void? Not being used here anymore.
 
   [hmap-1 hmap-2]
 
-  (merge-with (fn select-value [v-1 v-2]
-                (if (and (map? v-1)
-                         (map? v-2))
-                  (deep-merge v-1
-                              v-2)
-                  v-2))
+  (reduce-kv (fn merge-values [merged k v-2]
+               (let [v-1 (get merged
+                              k)
+                     v   (if (and (map? v-1)
+                                  (map? v-2))
+                           (not-empty (deep-merge v-1
+                                                  v-2))
+                           v-2)]
+                 (if (nil? v)
+                   (dissoc merged
+                           k)
+                   (assoc merged
+                          k
+                          v))))
               hmap-1
               hmap-2))
 
 
 
 
-(defn last-step
+(defn- -assoc-shortest
 
-  "Simplify provides the last step of a transition given its first-step and the number of steps it lasts."
+  ;; 
 
-  [first-step n-steps]
+  [node [k & ks :as path] leaf]
 
-  (+ first-step
-     (dec n-steps)))
+  (if (seq path)
+    (if (associative? node)
+      (if (contains? node
+                     k)
+        (assoc node
+               k
+               (-assoc-shortest (get node
+                                     k)
+                                ks
+                                leaf))
+        (assoc-in node
+                  path
+                  leaf))
+      node)
+    leaf))
 
 
 
 
-(defn millis->n-steps
+(defn assoc-shortest
+
+  ""
+
+  [hmap [k & ks :as path] leaf]
+
+  (if (seq path)
+    (if (contains? hmap
+                   k)
+      (assoc hmap
+             k
+             (-assoc-shortest (get hmap
+                                   k)
+                              ks
+                              leaf))
+      (assoc-in hmap
+                path
+                leaf))
+    hmap))
+
+
+
+
+(defn merge-shortest
+
+  ""
+
+  [hmap-1 hmap-2]
+
+  ;; TODO. #1 When neither is a map, still pick v-2 over v-1?
+  ;;          Shouldn't matter as (= v-1 v-2), by convention, supposedly.
+  ;;
+  ;; TODO. Really useful now there is `assoc-shortest`?
+
+  (reduce-kv (fn pick-shortest [hmap k v-2]
+               (if (contains? hmap
+                              k)
+                 (if (map? v-2)
+                   (let [v-1 (get hmap
+                                  k)]
+                     (if (map? v-1)
+                       (assoc hmap
+                              k
+                              (merge-shortest v-1
+                                              v-2))
+                       hmap))  ;; #1
+                   (assoc hmap
+                          k
+                          v-2))))
+             hmap-1
+             hmap-2))
+
+
+
+
+;;;;;;;;;; Data structures
+
+
+(def ^:private -rmap-empty
+
+  ;; A bit weird, but using timevecs as keys will not work if the sorted map is not
+  ;; initialized with at one (something to do with the comparator being used).
+
+  (dissoc (sorted-map [0 0] nil)
+          [0 0]))
+
+
+
+
+(defn rmap
+
+  ""
+
+  ([]
+
+   -rmap-empty)
+
+
+  ([& kvs]
+
+   (reduce (fn add [rmap [rvec v]]
+             (assoc rmap
+                    rvec
+                    v))
+           -rmap-empty
+           (partition 2
+                      kvs))))
+
+
+
+
+(defn queue
+
+  ""
+
+  ([]
+
+   PersistentQueue/EMPTY)
+
+
+  ([& values]
+
+   (into (queue)
+         values)))
+
+
+
+
+(defn queue?
+
+  ""
+
+  [x]
+
+  (instance? PersistentQueue
+             x))
+
+
+
+
+;;;;;;;;;; Time utilities
+
+
+(defn millis->utime
+
+  ;; TODO. Doc
 
   "Computes the number of steps needed for completing a transition in `millis` milliseconds for a phenomenon,
    such as the frame-rate, happening `hz` per second.
   
   
-   Ex. Computing the number of frames needed in order to last 2000 milliseconds with a frame-rate of 60.
+   Eg. Computing the number of frames needed in order to last 2000 milliseconds with a frame-rate of 60.
 
        (millis->n-steps 2000
                         60)
@@ -174,1090 +321,1670 @@
 
 
 
-;;;;;;;;;; Scaling percents and values
+
+;;;;;;;;;; Scaling numerical values
 
 
-(defn- -scale-percent
+(defn- -minmax-denorm
 
   ;; Scale a percent value to an arbitrary range.
 
-  [scaled-a scaled-delta percent]
+  [min-v interval v-norm]
 
-  (+ (* percent
-        scaled-delta)
-     scaled-a))
+  (double (+ (* v-norm
+                interval)
+             min-v)))
 
-
-
-
-(defn- -scale
-
-  ;; Scale an arbitrary value to another range.
-
-  [scaled-a scaled-delta a delta x]
-
-  (-scale-percent scaled-a
-                  scaled-delta
-                  (/ (- x 
-                        a)
-                     delta)))
 
 
 
 (defn scale
+  
+  ;; TODO. Obviously linear.
 
-  "3 args : scales a `percent` value to a value between `scaled-a` and `scaled-b`.
+  "3 args : scales a `percent` value (between 0 and 1 inclusive) to a value between `scaled-a` and `scaled-b`.
 
    5 args : scales the `x` value between `a` and `b` to be between `scaled-a` and `scaled-b`.
 
   
-   Ex. (scale 0
-              1000
+   Eg. (scale 200
+              100
               0.5)
 
-       => 500
+       => 250
 
 
-       (scale 0
-              1000
-              0
+       (scale 200
               100
-              50)
+              2000
+              1000
+              2500)
 
-       => 500"
+       => 250"
 
-  ([scaled-a scaled-b percent]
+  ([min-v interval percent]
 
-   (-scale-percent scaled-a
-                   (- scaled-b
-                      scaled-a)
+   (-minmax-denorm min-v
+                   interval
                    percent))
 
+  ([scaled-min-v scaled-interval min-v interval v]
 
-  ([scaled-a scaled-b a b x]
-
-   (-scale scaled-a
-           (- scaled-b
-              scaled-a)
-           a
-           (- b
-              a)
-           x)))
+   (-minmax-denorm scaled-min-v
+                   scaled-interval
+                   (/ (- v
+                        min-v)
+                      interval))))
 
 
 
 
-(defn fn-scale
+(defn minmax-norm
 
-  "Exactly like `scale` but does not accept a value to scale. Instead, returns a function which does so.
+  "Min-max normalization, linearly scales `x` to fit between 0 and 1 inclusive.
   
-   Particularly useful when working with the percentage of completion of transitions."
 
-  ([scaled-a scaled-b]
-   
-   (let [scaled-delta (- scaled-b
-                         scaled-a)]
-     (fn scale-percent
-        
-       ([percent]
+   Eg. (min-max-norm 20
+                     10
+                     25)
 
-        (-scale-percent scaled-a
-                        scaled-delta
-                        percent))
+       => 0.5"
 
+  [min-v interval v]
 
-       ([_state _data-path percent]
+  (double (/ (- v
+                min-v)
+             interval)))
 
-        (scale-percent percent)))))
 
 
-  ([scaled-a scaled-b a b]
 
-   (let [delta        (- b
-                         a)
-         scaled-delta (- scaled-b
-                         scaled-a)]
-     (fn scale' 
+;;;;;;;;; Generalities about contextes
 
-       ([x]
 
-        (-scale scaled-a
-                scaled-delta
-                a
-                delta
-                x))
+(def ctx
 
+  "Empty context, waiting to be used for future endaveours."
 
-       ([_state _data-path x]
+  {::events -rmap-empty})
 
-        (scale' x))))))
 
 
 
+(defn e-path
 
-;;;;;;;;;; Helpers for transitions and state management
-
-
-(defn fn-assoc-data
-
-  "Returns a function assoc'ing the given data at the data-path of a transition.
-  
-   Useful when some steps might be skipped but it is needed for a transition to reach 100%. For instance,
-   during a live animation, a frame will probably not be drawn at the exact millisecond a transition should
-   complete but some milliseconds later. The returned function can be used as an `on-complete` function
-   so that the state will always reflect the last step of such a transition."
-
-  [data]
-
-  (fn assoc-data
-
-    ([state data-path]
-
-     (assoc-in state
-               data-path
-               data))
-
-
-    ([state data-path _step]
-
-     (assoc-data state
-                 data-path))
-
-
-    ([state data-path _completion-step _step]
-     (assoc-data state
-                 data-path))))
-
-
-
-
-(defn fn-mirror
-
-  "Given an `on-step` function returning some arbitrary value instead of a new state, returns an `on-step`
-   function assoc'ing this value at the data-path in the state.
-  
-   Idiomatic."
-
-  [map-percent]
-
-  (fn mirror-on-step [state data-path percent]
-    (assoc-in state
-              data-path
-              (map-percent state
-                           data-path
-                           percent))))
-
-
-
-
-(defn fn-mirror-percent
-
-  "Behaves just like `fn-mirror` but the function provided in the first place simply maps a percent value to
-   an arbitrary one instead of being an `on-step` function.
-  
-   Small convenient helper when the current state and data-path are not needed."
-
-  [map-only-percent]
-
-  (fn-mirror (fn only-percent [_state _data-path percent]
-               (map-only-percent percent))))
-
-
-
-
-
-
-
-(defn- -in-transition?
-
-  ;; Checks if there are any transitions.
-
-  [subtree]
-
-  (or (and (map? subtree)
-           (not (empty? subtree)))
-      (some? subtree)))
-
-
-
-
-(defn in-transition?
-
-  "Is the given state or some part of it currently in transition?"
-
-  ([state]
-
-   (-in-transition? (get state
-                         transition-key)))
-
-
-  ([state data-path]
-
-   (-in-transition? (get-in state
-                            (transition-path data-path)))))
-
-
-
-
-(defn merge-transitions
-
-  "Deep merges the provided - often nested - map of transitions in the given state.
-  
-   Very useful for adding or removing several transitions at once. Indeed, nil values are simply removed when moving the state."
-
-  [state transitions]
-
-  (update state
-          transition-key
-          deep-merge
-          transitions))
-
-
-
-
-(defn pipe-complete
-
-  "Given a collection of `on-complete` functions, returns an `on-complete` function piping arguments into this collection.
-  
-   Nil values are simply filtered-out."
-
-  [on-completes]
-
-  (let [on-completes' (filterv some?
-                               on-completes)]
-    (case (count on-completes')
-      0 nil
-      1 (first on-completes')
-      2 (let [[on-complete-1
-               on-complete-2] on-completes']
-          (fn piped-on-complete [state data-path completion-step step]
-            (-> state
-                (on-complete-1 data-path
-                               completion-step
-                               step)
-                (on-complete-2 data-path
-                               completion-step
-                               step))))
-      (fn reduce-on-complete [state data-path completion-step step]
-        (reduce (fn next-on-complete [state' local-on-complete]
-                  (local-on-complete state'
-                                     data-path
-                                     completion-step
-                                     step))
-                state
-                on-completes')))))
-
-
-
-
-(defn remove-data
-
-  "Uses `dissoc-in` for removing what is at some data-path.
-  
-   More useful when used as an `on-complete` function and the data needs to be cleaned once the transition completes."
-
-  ([state data-path]
-
-   (dissoc-in state
-              data-path))
-
-  ([state data-path _percent]
-
-   (remove-data state
-                data-path))
-
-
-  ([state data-path _completion-step _step]
-
-   (remove-data state
-                data-path)))
-
-
-
-
-(defn remove-transition
-
-  "Removes a transition given the data-path."
-
-  ([state data-path]
-
-   (dissoc-in state
-              (transition-path data-path)))
-
-
-  ([state data-path _percent]
-
-   (remove-transition state
-                      data-path))
-
-
-  ([state data-path _completion-step _step]
-
-   (remove-transition state
-                      data-path)))
-
-
-
-
-
-(defn remove-pre-data
-
-  "A vast majority of modeling involves some form of entities. It is also very common for such entities to be removed once all
-   their transitions completes, meaning they cannot evolve anymore. This function, used as an `on-complete` function, does exactly that.
-
-   For instance, modeling asteroids as {:asteroids {42 {:x 542
-                                                        :y 1000}}} having :x and :y transitions.
-
-   Once it cannot move anymore, an asteroid must be cleaned (ie. removed from the state). By providing this function as an `on-complete`
-   function to every :x and :y transition garantees that. It will use `dissoc-in` for removing [:asteroids 42] once it does not have
-   any transitions anymore."
-
-  ([state data-path]
-
-   (let [subtree-path (drop-last data-path)]
-     (if (in-transition? state
-                         subtree-path)
-       state
-       (dissoc-in state
-                  subtree-path))))
-
-
-  ([state data-path _percent]
-
-   (remove-pre-data state
-                    data-path))
-
-
-  ([state data-path _completion-step _step]
-
-   (remove-pre-data state
-                    data-path)))
-
-
-
-
-(def transition-key
-
-  "All transitions belonging to a state map must be under this key."
-
-  ::transitions)
-
-
-
-
-(defn transition-path
-
-  "Given a data-path, returns a transition-path"
-
-  [data-path]
-
-  (cons transition-key
-        data-path))
-
-
-
-
-(defn without-transitions
-
-  "Returns the given state without its transitions."
-
-  [state]
-
-  (dissoc state
-          transition-key))
-
-
-
-
-;;;;;;;;;; Prioritizing transitions
-
-
-(defn priority
-
-  "Returns the priority value associated with the given key."
-
-  [k]
-
-  (::priority (meta k)))
-
-
-
-
-(defn with-priority
-
-  "Associates a priority value to the given key, typically a symbol. In any case, it must support meta.
-  
-   Cf. `priority`
-       `priority-map`"
-
-  [k priority]
-
-  (vary-meta k
-             assoc
-             ::priority
-             priority))
-
-
-
-
-(def priority-map
-
-  "A priority state map is a map sorted by the priority values assigned to its keys using `with-priority`.
-  
-   Useful when transitions need to happen in a specific order."
-
-  (sorted-map-by (fn compare-priorities [k-1 k-2]
-                   (compare (priority k-1)
-                            (priority k-2)))))
-
-
-
-
-;;;;;;;;;; Creating transitions
-
-
-(defn- -complete-transition
-
-  ;; Completes a mono-transition.
-
-  ;; TODO. `transition` not needed?!
-
-  [state data-path completion-step step transition on-complete]
-
-  (let [state' (remove-transition state
-                                  data-path)]
-    (if on-complete
-      (on-complete state'
-                   data-path
-                   completion-step
-                   step)
-      state')))
-
-
-
-
-(defn infinite
-
-  "Returns a transition endlessly repeating cycles of `n-steps` steps.
-  
-   Obviously, it does not need an `on-complete` function."
-
-  [first-step n-steps on-step]
-
-  (let [last-cycle-step (dec n-steps)]
-    (fn infinite-transition [state data-path step]
-     (if (>= step
-             first-step)
-       (on-step state
-                data-path
-                (double (/ (rem (- step
-                                   first-step)
-                                n-steps)
-                           last-cycle-step)))
-       state))))
-
-
-
-
-(defn fn-infinite
-
-  "Returns a function returning an infinite transition.
-
-   Useful for poly-transitions.
-
-  
-   Cf. `infinite`
-       `poly`"
-
-  [n-steps on-step]
-
-  (fn make-infinite
-
-    ([state first-step]
-
-     (make-infinite state
-                    first-step
-                    nil))
-
-
-    ([_state first-step _on-complete]
-
-     (infinite first-step
-               n-steps
-               on-step))))
-
-
-
-
-(defn once
-
-  "Returns a transition lasting `n-steps` steps."
-
-  ([first-step n-steps on-step]
-
-   (once first-step
-         n-steps
-         on-step
-         nil))
-
-
-  ([first-step n-steps on-step on-complete]
-
-   (let [last-step'  (last-step first-step
-                                n-steps)
-         delta-steps (- last-step'
-                        first-step)]
-     (fn once-transition [state data-path step]
-       (if (>= step
-               first-step)
-         (if (<= step
-                 last-step')
-           (on-step state
-                    data-path
-                    (double (/ (- step
-                                  first-step)
-                               delta-steps)))
-           (-complete-transition state
-                                 data-path
-                                 (inc last-step')
-                                 step
-                                 once-transition
-                                 on-complete))
-         state)))))
-
-
-
-
-(defn fn-once
-
-  "Returns a function returning a transition.
-  
-   Useful for poly-transitions.
-
-  
-   Cf. `once`
-       `poly`"
-
-  ([n-steps on-step]
-
-   (fn-once n-steps
-            on-step
-            nil))
-
-
-  ([n-steps on-step on-complete]
-
-   (fn make-once
-
-     ([state first-step]
-
-      (make-once state
-                 first-step
-                 nil))
-
-
-     ([_state first-step on-complete-2]
-
-      (once first-step
-            n-steps
-            on-step
-            (pipe-complete [on-complete
-                            on-complete-2]))))))
-
-
-
-
-(defn- -validate-n-times
-
-  ;; Ensures repeating transitions happen more than once.
-
-  [n-times]
-
-  (when (<= n-times
-            1)
-    (throw (IllegalArgumentException. "`n-times` must be > 1"))))
-
-
-
-
-(defn repeating
-
-  "Returns a transition repeating `n-steps` steps `n-times` times."
-
-  ([first-step n-times n-steps on-step]
-
-   (repeating first-step
-              n-times
-              n-steps
-              on-step
-              nil))
-
-
-  ([first-step n-times n-steps on-step on-complete]
-
-   (-validate-n-times n-times) 
-   (let [last-cycle-step (dec n-steps)]
-     (fn repeating-transition [state data-path step]
-       (if (>= step
-               first-step)
-         (let [delta-first (- step
-                              first-step)]
-           (if (< (quot delta-first
-                        n-steps)
-                   n-times)
-             (on-step state
-                      data-path
-                      (double (/ (rem delta-first
-                                      n-steps)
-                                 last-cycle-step)))
-             (-complete-transition state
-                                   data-path
-                                   (+ first-step
-                                      (* n-times
-                                         n-steps))
-                                   step
-                                   repeating-transition
-                                   on-complete)))
-         state)))))
-
-
-
-
-(defn fn-repeating
-
-  "Returns a function returning a repeating transition.
-  
-   Useful for poly-transitions.
-  
-  
-   Cf. `repeating`
-       `poly`"
-
-  ([n-times n-steps on-step]
-
-   (fn-repeating n-times
-                 n-steps
-                 on-step
-                 nil))
-
-
-  ([n-times n-steps on-step on-complete]
-
-   (fn make-repeating
-
-     ([state first-step]
-
-      (make-repeating state
-                      first-step
-                      nil))
-
-
-     ([_state first-step on-complete-2]
-
-      (repeating first-step
-                 n-times
-                 n-steps
-                 on-step
-                 (pipe-complete [on-complete
-                                 on-complete-2]))))))
-
-
-
-
-(defn- -assoc-next-transition
-
-  ;; Assoc'es the given transition and also realizes it for the given step, thus returning a new state.
   ;;
-  ;; Helper for poly-transitions.
 
-  [state data-path step transition]
+  ([]
 
-  (transition (assoc-in state
-                        (transition-path data-path)
-                        transition)
-              data-path
-              step))
+   (list ::e-flat
+         ::queue))
 
 
+  ([timevec path]
+
+   (cons ::events
+         (cons timevec
+               path))))
 
 
-(defn poly
 
-  "Returns a poly-transition which will follow a collection of functions producing transitions.
 
-   Those functions will be provided with the state at the moment the transition is created, the first-step 
-   of this transition and an `on-complete` function which must not be ignored. This `on-complete` function
-   ensures that the next transition, if there is one, will be created."
+(defn f-path
 
-  ([state first-step fn-transitions]
+  ;;
 
-   (poly state
-         first-step
-         fn-transitions
+  ([]
+
+   (f-path (path ctx)))
+
+
+  ([path]
+
+   (cons ::flows
+         path)))
+
+
+
+
+(defn empty-event?
+
+  ""
+
+  [event]
+
+  (if (queue? event)
+    (empty-event? (peek event))
+    (nil? event)))
+
+
+
+
+(defn flowing?
+
+  "Is the given context or some part of it currently in transition?"
+
+  ([ctx]
+
+   (flowing? ctx
+             nil))
+
+
+  ([ctx path]
+
+   (not (empty? (get-in ctx
+                        (cons ::flows
+                              path))))))
+
+
+
+(defn next-ptime
+
+  ""
+
+  [ctx]
+
+  (first (ffirst (::events ctx))))
+
+
+
+
+(defn path
+
+  ""
+
+  [ctx]
+
+  (::path (::e-flat ctx)))
+
+
+
+
+(defn ptime
+
+  ""
+
+  [ctx]
+
+  (or (::ptime (::e-flat ctx))
+      (::ptime ctx)))
+
+
+
+
+(defn reached?
+
+  ""
+
+  [ctx ptime-target]
+
+  (>= (ptime ctx)
+      ptime-target))
+
+
+
+
+(defn scheduled?
+
+  ""
+
+  ([ctx]
+
+   (not (empty? (get ctx
+                     ::events))))
+
+
+  ([ctx timevec]
+
+   (not (empty? (get-in ctx
+                        [::events
+                         timevec])))))
+
+
+
+
+(defn timevec
+
+  ""
+
+  [ctx]
+
+  (::timevec (::e-flat ctx)))
+
+
+
+
+;;;;;;;;;; Adding, removing, and modifying events
+
+
+(defn- -ex-ctx
+
+  ;; TODO. Name.
+
+  [ctx timevec path msg]
+
+  (throw (ex-info msg
+                  {::path    path
+                   ::ctx     ctx
+                   ::timevec timevec})))
+
+
+
+
+(defn- -not-empty-event
+
+  ;;
+
+  [event]
+
+  (when (empty-event? event)
+    (throw (ex-info "Event is nil or empty"
+                    {::event event})))
+  event)
+
+
+
+
+(defn e-assoc
+
+  ""
+
+  ([ctx event]
+
+   (assoc-in ctx
+             [::e-flat
+              ::queue]
+             (if (queue? event)
+               event
+               (queue event))))
+
+
+  ([ctx timevec event]
+
+   (e-assoc ctx
+            timevec
+            (path ctx)
+            event))
+
+
+  ([ctx timevec path event]
+
+   (e-update ctx
+             timevec
+             path
+             (fn check-e-flat [node]
+               (if (map? node)
+                 (-ex-ctx ctx
+                          timevec
+                          path
+                          "Cannot assoc an event at a node")
+                 event)))))
+
+
+
+
+(defn e-conj
+
+  ""
+
+  ;; Clojure's `conj` can take several values, but this is messing with our arities.
+
+  ([ctx event]
+
+   (e-update ctx
+             (fn -e-conj [q]
+               (conj q
+                     event))))
+
+
+  ([ctx timevec event]
+
+   (e-conj ctx
+           timevec
+           (path ctx)
+           event))
+
+
+  ([ctx timevec path event]
+
+   (e-update ctx
+             timevec
+             path
+             (fn -e-conj [node]
+               (cond
+                 (nil? node)   (queue event)
+                 (fn? node)    (queue node
+                                      event)
+                 (queue? node) (conj node
+                                     event)
+                 :else         (-ex-ctx ctx
+                                        timevec
+                                        path
+                                        "Can only `e-conj` to nil or an event"))))))
+
+
+
+
+(defn e-dissoc
+  
+  ""
+
+  ([ctx]
+
+   (update ctx
+           ::e-flat
+           dissoc
+           ::queue))
+
+
+  ([ctx timevec path]
+
+   (dissoc-in ctx
+              (e-path timevec
+                      path))))
+
+
+
+
+(defn e-into
+
+  ""
+  
+  ([ctx events]
+   
+   (e-update ctx
+             (fn -e-into [q]
+               (into (vary-meta q
+                                merge
+                                (meta events))
+                     events))))
+
+
+  ([ctx timevec events]
+
+   (e-into ctx
+           timevec
+           (path ctx)
+           events))
+
+
+  ([ctx timevec path events]
+
+   (e-update ctx
+             timevec
+             path
+             (fn -e-into [node]
+               (cond
+                 (nil? node)   (if (queue? events)
+                                 events
+                                 (into (with-meta (queue)
+                                                  (meta events))
+                                       events))
+                 (fn? node)    (into (with-meta (queue node)
+                                                (meta events))
+                                     events)
+                 (queue? node) (into (vary-meta node
+                                                merge
+                                                (meta events))
+                                     events)
+                 :else         (-ex-ctx ctx
+                                        timevec
+                                        path
+                                        "Can only `e-into` to nil or an event"))))))
+
+
+
+
+(defn e-get
+
+  ""
+
+  ([ctx]
+
+   (get-in ctx
+           [::e-flat
+            ::queue]))
+
+
+  ([ctx timevec path]
+
+   (get-in ctx
+           (e-path timevec
+                   path))))
+
+
+
+
+
+(defn e-isolate
+
+  ""
+
+  ([ctx]
+
+   (e-update ctx
+             (fn -e-isolate [q]
+               (if (empty? q)
+                 q
+                 (queue q)))))
+
+
+  ([ctx timevec]
+
+   (e-isolate ctx
+              timevec
+              (path ctx)))
+
+
+  ([ctx timevec path]
+
+   (e-update ctx
+             timevec
+             path
+             (fn -e-isole [event]
+               (some-> event
+                       queue)))))
+
+
+
+
+(defn e-pop
+
+  ""
+
+  ([ctx]
+
+   (update-in ctx
+              [::e-flat
+               ::queue]
+              pop))
+
+
+  ([ctx timevec]
+
+   (e-pop ctx
+          timevec
+          (path ctx)))
+
+
+  ([ctx timevec path]
+
+   (let [e-path' (e-path timevec
+                         path)
+         event   (get-in ctx
+                         e-path')]
+     (cond
+       (queue? event) (let [event-2 (pop event)]
+                        (if (empty? event-2)
+                          (dissoc-in ctx
+                                     e-path')
+                          (assoc-in ctx
+                                    e-path'
+                                    event-2)))
+       (fn? event)    (dissoc-in ctx
+                                 e-path')
+       :else          ctx))))
+
+
+
+
+(defn e-push
+
+  ""
+
+  ([ctx q]
+
+   (e-update ctx
+             (fn -e-push [q-old]
+               (into (vary-meta q
+                                merge
+                                (meta q-old))
+                     q-old))))
+           
+
+  ([ctx timevec q]
+
+   (e-push ctx
+           timevec
+           (path ctx)
+           q))
+
+
+  ([ctx timevec path q]
+
+   (e-update ctx
+             timevec
+             path
+             (fn -e-push [node]
+               (cond
+                 (nil? node)   q
+                 (fn? node)    (into (with-meta (queue node)
+                                                (meta q))
+                                     q)
+                 (queue? node) (into (vary-meta q
+                                                merge
+                                                (meta node))
+                                     node)
+                 :else         (-ex-ctx ctx
+                                        timevec
+                                        path
+                                        "Can only `e-push` to nil or an event"))))))
+
+
+
+
+(defn e-update
+
+  ""
+
+  ([ctx f]
+
+   (update-in ctx
+              [::e-flat
+               ::queue]
+              (fn safe-f [wq]
+                (when (nil? wq)
+                  (throw (ex-info "No working queue at the moment"
+                                  {::ctx ctx})))
+                (f wq))))
+
+
+  ([ctx timevec path f]
+
+   (update-some-in ctx
+                   (e-path timevec
+                           path)
+                   (comp -not-empty-event
+                         f))))
+
+
+
+
+;;;;;;;;;; Timevecs
+
+
+(defn timevec+
+
+  ""
+
+  [timevec dtimevec]
+
+  (if (empty? dtimevec)
+    timevec
+    (let [n-timevec  (count timevec)
+          n-dtimevec (count dtimevec)
+          [base
+           [front
+            rear]]   (if (<= n-timevec
+                             n-dtimevec)
+                       [timevec
+                        (split-at n-timevec
+                                 dtimevec)]
+                       [dtimevec
+                        (split-at n-dtimevec
+                                  timevec)])]
+      (when (neg? (first dtimevec))
+        (throw (ex-info "Cannot add negative time interval to timevec"
+                        {::dtimevec dtimevec
+                         ::timevec  timevec})))
+      (into (mapv +
+                  base
+                  front)
+            rear))))
+
+
+
+
+(defn wq-timevec+
+
+  ""
+
+  ([dtimevec]
+
+   (fn ctx->timevec [ctx]
+     (wq-timevec+ ctx
+                  dtimevec)))
+
+
+  ([ctx dtimevec]
+
+   (timevec+ (timevec ctx)
+             dtimevec)))
+
+
+
+
+;;;;;;;;;; Moving a context through time
+
+
+(defn- -fn-restore-q-outer
+
+  ""
+
+  [q-outer]
+
+  (fn restore-q-outer [ctx]
+    (assoc-in ctx
+              [::e-flat
+               ::queue]
+              q-outer)))
+
+
+
+
+(defn- -q-handle
+
+  ;;
+
+  ([ctx q]
+
+   (-q-handle ctx
+              q
+              identity))
+
+
+  ([ctx q after-q]
+
+   (let [event  (peek q)
+         q-2    (pop q)
+         [ctx-2
+          q-3]  (if (queue? event)
+                  [(-q-handle ctx
+                              event
+                              (-fn-restore-q-outer q-2))
+                   q-2]
+                  (let [ctx-2 (event (assoc-in ctx
+                                               [::e-flat
+                                                ::queue]
+                                               q-2))]
+                    [ctx-2
+                     (e-get ctx-2)]))]
+     (if (empty? q-3)
+       (after-q ctx-2)
+       (recur ctx-2
+              q-3
+              after-q)))))
+
+
+
+
+(defn- -fn-f-execute
+
+  ;;
+
+  [path f]
+  
+  (fn f-execute [ctx timevec]
+    (let [ctx-2 (f (update ctx
+                           ::e-flat
+                           merge
+                           {::path  path
+                            ::queue (queue)}))
+          wq    (e-get ctx)]
+      (if (empty? wq)
+        ctx-2
+        (-q-handle ctx-2
+                   wq)))))
+
+
+
+
+(defn- -fn-q-execute
+
+  ;;
+
+  [path events]
+
+  (fn q-execute [ctx timevec]
+    (-q-handle (assoc-in ctx
+                         [::e-flat
+                          ::path]
+                         path)
+               events)))
+
+
+
+
+(defn- -e-fetch
+
+  ;; TODO. Micro-optimize knowing we have a map in the first pass?
+
+  ([node]
+
+   (-e-fetch node
+             []))
+
+
+  ([node path]
+
+   (cond
+      (map? node)   (let [[k
+                           node-next]  (first node)
+                          [node-next-2
+                           :as ret]    (-e-fetch node-next
+                                                 (conj path
+                                                       k))]
+                      (assoc ret
+                             0
+                             (if (empty? node-next-2)
+                               (dissoc node
+                                       k)
+                               (assoc node
+                                      k
+                                      node-next-2))))
+      (fn? node)    [nil
+                     (-fn-f-execute path
+                                    node)]
+      (queue? node) [nil
+                     (-fn-q-execute path
+                                    node)]
+      :else         (throw (ex-info "Node must be a map, a function or a queue"
+                                    {::node node})))))
+
+
+
+
+
+(defn- -e-execute
+
+  ;;
+
+  [ctx timevec e-tree]
+
+  (let [[popped-events
+         leaf-handler] (-e-fetch e-tree)]
+    (leaf-handler (-> ctx
+                      (update ::events
+                              (fn update-popped [events]
+                                (if (empty? popped-events)
+                                  (dissoc events
+                                          timevec)
+                                  (assoc events
+                                         timevec
+                                         popped-events))))
+                      (assoc ::e-flat
+                             {::timevec timevec}))
+                  timevec)))
+
+
+
+
+(defn- -validate-ctx-ptime
+
+  ;;
+
+  [ctx e-ptime]
+
+  (when-some [ptime (::ptime ctx)]
+    (when (<= e-ptime
+              ptime)
+      (throw (ex-info "Ptime of events must be > ctx ptime"
+                      {::e-ptime e-ptime
+                       ::ptime   ptime})))))
+
+
+
+
+(defn- -throw-ptime-current
+
+  ;;
+
+  [e-ptime ptime]
+
+  (throw (ex-info "Ptime of enqueued events is < current ptime"
+                  {::e-ptime e-ptime
+                   ::ptime   ptime})))
+
+
+
+
+(defn- -e-next
+
+  ;;
+
+  [ctx]
+
+  (first (::events ctx)))
+
+
+
+
+(defn- -fn-before-ptime
+
+  ;;
+
+  [options]
+
+  (let [before-ptime (or (::before-ptime options)
+                         identity)]
+    (fn before-ptime-2 [ctx ptime]
+      (-> ctx
+          (assoc ::ptime
+                 ptime)
+          before-ptime))))
+
+
+
+
+(defn- -fn-after-ptime
+
+  ;; MAYBEDO. Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
+  ;;          Would it be really useful to share some state between all events on a per ptime basis?
+
+  [options]
+
+  (let [after-ptime (or (::after-ptime options)
+                        identity)]
+    (fn after-ptime-2 [ctx]
+      (after-ptime (dissoc ctx
+                           ::e-flat)))))
+
+
+
+
+(defn- -after-eager-jump
+
+  ;;
+
+  [ctx after-ptime]
+
+  (after-ptime (dissoc ctx
+                       ::e-flat)))
+
+
+
+
+(defn- -jump-until
+
+  ;; A bit fugly, but straightforward, or is it...
+
+  [ctx ptime e-timevec e-tree pred before-ptime after-ptime]
+
+  (loop [ctx       ctx
+         ptime     ptime
+         e-timevec e-timevec
+         e-tree    e-tree]
+    (let [ctx-2                 (-e-execute ctx
+                                            e-timevec
+                                            e-tree)
+          [[e-ptime-next
+            :as e-timevec-next]
+           e-tree-next
+           :as e-next]          (-e-next ctx-2)]
+    (if e-next 
+      (cond
+        (= e-ptime-next
+           ptime)       (recur ctx-2
+                               ptime
+                               e-timevec-next
+                               e-tree-next)
+        (> e-ptime-next
+           ptime)       (let [ctx-3 (after-ptime ctx-2)]
+                          (or (pred ctx-3
+                                    ptime
+                                    e-ptime-next)
+                              (recur (before-ptime ctx-3
+                                                   e-ptime-next)
+                                     e-ptime-next
+                                     e-timevec-next
+                                     e-tree-next)))
+        :else             (throw
+                            (IllegalStateException. (format "Point in time of enqueued events (%f) is < current ptime (%f)"
+                                                            e-ptime-next
+                                                            ptime))))
+      (-after-eager-jump ctx-2
+                         after-ptime)))))
+
+
+
+
+(defn jump-until
+
+  ""
+
+  ([ctx pred]
+
+   (jump-until ctx
+               pred
+               nil))
+
+
+  ([ctx pred options]
+
+   (let [[[ptime
+           :as e-timevec]
+          e-tree
+          :as e-next]     (-e-next ctx)]
+     (-validate-ctx-ptime ctx
+                          ptime)
+     (if e-next
+       (or (pred ctx
+                 nil
+                 ptime)
+           (let [before-ptime (-fn-before-ptime options)
+                 after-ptime  (-fn-after-ptime options)]
+             (-jump-until (before-ptime ctx
+                                        ptime)
+                          ptime
+                          e-timevec
+                          e-tree
+                          pred
+                          before-ptime
+                          after-ptime)))
+       ctx))))
+
+
+
+
+(defn jump
+
+  ""
+
+  ([ctx]
+
+   (jump ctx
          nil))
 
 
-  ([state first-step fn-transitions on-complete]
+  ([ctx options]
 
-   (when-some [fn-transition (first fn-transitions)]
-     (fn-transition state
-                    first-step
-                    (fn on-complete' [state' data-path completion-step step]
-                      (if-some [next-transition (poly state'
-                                                      completion-step
-                                                      (rest fn-transitions)
-                                                      on-complete)]
-                        (-assoc-next-transition state'
-                                                data-path
-                                                step
-                                                next-transition)
-                        (if on-complete
-                          (on-complete state'
-                                       data-path
-                                       completion-step
-                                       step)
-                          state')))))))
+   (jump-until ctx
+               (fn single-ptime [ctx ptime-last _ptime-next]
+                 (when ptime-last
+                   ctx))
+               options)))
 
 
 
 
-(defn fn-poly
+(defn jump-to
 
-  "Returns a function returning a poly-transition.
-  
-   Useful for nested poly-transitions.
-  
-  
-   Cf. `poly`"
+  ""
 
-  ([fn-transitions]
+  ([ctx ptime]
 
-   (fn-poly fn-transitions
+   (jump-to ctx
+            ptime
             nil))
 
 
-  ([fn-transitions on-complete]
+  ([ctx ptime options]
 
-   (fn make-poly
+   (jump-until ctx
+               (fn ptime-not-reached [ctx _ptime-last ptime-next]
+                 (when (> ptime-next
+                          ptime)
+                   ctx))
+               options)))
 
-     ([state first-step]
 
-      (make-poly state
-                 first-step
-                 nil))
 
 
-     ([state first-step on-complete-2]
+(defn jump-to-end
 
-      (poly state
-            first-step
-            fn-transitions
-            (pipe-complete [on-complete
-                            on-complete-2]))))))
+  ""
 
+  ;; TODO. void
 
+  ([ctx]
 
+   (jump-to-end ctx
+                nil))
 
-(defn- -poly-infinite
 
-  ;; Helper for `poly-infinite`.
+  ([ctx options]
 
-  [state first-step all-fn-transitions fn-transitions]
+   (jump-until ctx
+               (fn always [_ctx _ptime _ptime-next]
+                 nil)
+               options)))
 
-  (when-some [fn-transition (first fn-transitions)]
-    (fn-transition state
-                   first-step
-                   (fn endless-cycle [state' data-path completion-step step]
-                     (-assoc-next-transition state'
-                                             data-path
-                                             step
-                                             (or (-poly-infinite state'
-                                                                 completion-step
-                                                                 all-fn-transitions
-                                                                 (rest fn-transitions))
-                                                 (poly-infinite state'
-                                                                completion-step
-                                                                all-fn-transitions)))))))
 
 
 
+(defn- -history
 
-(defn poly-infinite
+  ;;
 
-  "Union of `infinite` and `poly`. Returns a poly-transition endlessly repeating."
+  [ctx ptime e-timevec e-tree before-ptime after-ptime]
 
-  [state first-step fn-transitions]
+  (let [ctx-2 (-e-execute ctx
+                          e-timevec
+                          e-tree)]
+    (if-some [[[e-ptime-next
+                :as e-timevec-next]
+               e-tree-next]         (-e-next ctx-2)]
+      (cond
+        (= e-ptime-next
+           ptime)       (recur ctx-2
+                               ptime
+                               e-timevec-next
+                               e-tree-next
+                               before-ptime
+                               after-ptime)
+        (> e-ptime-next
+           ptime)       (let [ctx-3 (after-ptime ctx-2)]
+                          (cons ctx-3
+                                (lazy-seq
+                                  (-history (before-ptime ctx-3
+                                                          e-ptime-next)
+                                            e-ptime-next
+                                            e-timevec-next
+                                            e-tree-next
+                                            before-ptime
+                                            after-ptime))))
+        :else           (-throw-ptime-current e-ptime-next
+                                              ptime))
+      (cons (after-ptime ctx-2)
+            nil))))
 
-  (-poly-infinite state
-                  first-step
-                  fn-transitions
-                  fn-transitions))
 
 
 
+(defn history
 
-(defn fn-poly-infinite
+  ""
 
-  "Returns a function returning an infinite poly-transition.
-  
-   Useful for nested poly-transitions.
-  
-  
-   Cf. `poly`
-       `poly-infinite`"
+  ([ctx]
 
-  [fn-transitions]
+   (history ctx
+            nil))
 
-  (fn make-poly-infinite
-    
-    ([state first-step]
 
-     (make-poly-infinite state
-                         first-step
-                         nil))
+  ([ctx options]
 
+   (lazy-seq
+     (when-some [[[ptime
+                  :as e-timevec]
+                  e-tree]         (-e-next ctx)]
+       (-validate-ctx-ptime ctx
+                            ptime)
+       (let [before-ptime (-fn-before-ptime options)
+             after-ptime  (-fn-after-ptime options)]
+         (-history (before-ptime ctx
+                                 ptime)
+                   ptime
+                   e-timevec
+                   e-tree
+                   before-ptime
+                   (fn after-ptime-2 [ctx]
+                     (-after-eager-jump ctx
+                                        after-ptime))))))))
 
-    ([state first-step _on-complete]
 
-     (poly-infinite state
-                    first-step
-                    fn-transitions))))
 
 
+;;;;;;;;;; Relative to the currently executed queue (aka. the "working queue")
+;;
+;;
+;; Manipulating the working queue, creating events to do so, or quering data about it.
+;;
+;;
+;; Arities are redundant but more user-friendly and API-consistent than partial application.
+;; Let us not be too smart by imagining some evil macro.
+;;
 
 
-(defn- -poly-repeating
+(defn wq-breaker
 
-  ;; Helper for `poly-repeating`.
+  ""
 
-  [state first-step n-times all-fn-transitions fn-transitions on-complete]
+  ([pred?]
 
-  (when-some [fn-transition (first fn-transitions)]
-    (let [n-times' (dec n-times)]
-      (fn-transition state
-                     first-step
-                     (fn repeating-cycle [state' data-path completion-step step]
-                       (if-some [next-transition (or (-poly-repeating state'
-                                                                      completion-step
-                                                                      n-times
-                                                                      all-fn-transitions
-                                                                      (rest fn-transitions)
-                                                                      on-complete)
-                                                     (when (> n-times'
-                                                              0)
-                                                       (-poly-repeating state'
-                                                                        completion-step
-                                                                        n-times'
-                                                                        all-fn-transitions
-                                                                        all-fn-transitions
-                                                                        on-complete)))]
-                         (-assoc-next-transition state'
-                                                 data-path
-                                                 step
-                                                 next-transition)
-                         (if on-complete
-                           (on-complete state'
-                                        data-path
-                                        completion-step
-                                        step)
-                           state')))))))
+   (fn event [ctx]
+     (wq-breaker ctx
+                 pred?)))
 
 
 
+  ([ctx pred?]
 
-(defn poly-repeating
+   (if (pred? ctx)
+     ctx
+     (e-dissoc ctx))))
 
-  "Union of `repeating` and `poly`. Returns a poly-transition repeating `n-times`."
 
-  ([state first-step n-times fn-transitions]
 
-   (poly-repeating state
-                   first-step
-                   n-times
-                   fn-transitions
-                   nil))
 
+(defn wq-capture
 
-  ([state first-step n-times fn-transitions on-complete]
-   
-   (-validate-n-times n-times)
-   (-poly-repeating state
-                    first-step
-                    n-times
-                    fn-transitions
-                    fn-transitions
-                    on-complete)))
+  ""
 
+  ([]
 
+   wq-capture)
 
 
-(defn fn-poly-repeating
+  ([ctx]
 
-  "Returns a function returning a repeating poly-transition.
- 
-   Useful for nested poly-transitions.
-  
-  
-   Cf. `poly`
-       `poly-repeating`"
+   (wq-vary-meta ctx
+                 (fn capture [mta]
+                   (-> mta
+                       (update ::captured
+                               (fn save-captured [captured]
+                                 (conj (or captured
+                                           (list))
+                                       (with-meta (e-get ctx)
+                                                  nil))))
+                       (update ::sreplay
+                               (fn state-slot [sreplay]
+                                 (if sreplay
+                                   (conj sreplay
+                                         nil)
+                                   (list nil)))))))))
 
-  ([n-times fn-transitions]
 
-   (fn-poly-repeating n-times
-                      fn-transitions
-                      nil))
 
 
-  ([n-times fn-transitions on-complete]
+(defn wq-conj
 
-   (fn make-poly
+  ""
 
-     ([state first-step]
+  ([ctx->timevec event]
 
-      (make-poly state
-                 first-step
-                 nil))
+   (fn event [ctx]
+     (wq-conj ctx
+              ctx->timevec
+              event)))
 
 
-     ([state first-step on-complete-2]
+  ([ctx ctx->timevec event]
 
-      (poly-repeating state
-                      first-step
-                      fn-transitions
-                      (pipe-complete [on-complete
-                                      on-complete-2]))))))
+   (if (and (queue? event)
+            (empty? event))
+     ctx
+     (e-conj ctx
+             (ctx->timevec ctx)
+             event))))
 
 
 
 
-;;;;;;;;;; Moving states through steps
+(defn wq-copy
 
+  ""
 
-(defn- -recur-move
+  ([ctx->timevec]
 
-  ;; Helper for `move`.
+   (fn event [ctx]
+     (wq-copy ctx
+               ctx->timevec)))
 
-  [state step path transition]
 
-  (cond
-    (fn? transition)  (transition state
-                                  path
-                                  step)
-    (map? transition) (reduce-kv (fn recur-over [state k transition]
-                                   (-recur-move state
-                                                step
-                                                (conj path
-                                                      k)
-                                                transition))
-                                 state
-                                 transition)
-    (nil? transition) (dissoc-in state
-                                 (transition-path path))))
+  ([ctx ctx->timevec]
 
+   (wq-conj ctx
+            ctx->timevec
+            (e-get ctx))))
 
 
 
-(defn move
 
-  "Moves a state to the given step (ie. returns a new state representing the given state at the given step).
-  
-   It belongs to the user to ensure steps are not skipped if it is the needed behavior."
+(defn wq-delay
 
-  [state step]
+  ""
 
-  (reduce-kv (fn recur-over [state k transition]
-               (-recur-move state
-                            step
-                            [k]
-                            transition))
-             state
-             (get state
-                  transition-key)))
+  ([ctx->timevec]
 
+   (fn event [ctx]
+     (wq-delay ctx
+                ctx->timevec)))
 
 
+  ([ctx ctx->timevec]
 
-(defn move-seq
+   (e-dissoc (wq-copy ctx
+                      ctx->timevec))))
 
-  "Returns a lazy sequence of [state' step] by iteratively moving the given state following the given sequence of steps.
-  
-   Stops as soon as it reaches the end of `step-seq` or it detects there no more transitions, meaning it is useless to
-   continue."
 
-  [state step-seq]
 
-  (lazy-seq
-    (when-let [step (and (not (empty? (get state
-                                           transition-key)))
-                         (first step-seq))]
-      (let [state' (move state
-                         step)]
-        (cons [state'
-               step]
-              (move-seq state'
-                        (rest step-seq)))))))
 
+(defn wq-do!
 
+  ""
 
+  [side-effect]
 
-(def step-key
+  (fn event [ctx]
+    (side-effect ctx)
+    ctx))
 
-  "When using `move-events`, each event must have a step assigned by this key."
 
-  ::step)
 
 
+(defn wq-execute
 
+  ""
 
-(defn move-events
+  ([q]
 
-  "Merely moving a state is often not enough. Typically, some events happen which modify the state in some way, add, remove,
-   or replace transitions. This function does exactly that.
-  
-   It behaves like `move-seq` in that it moves an initial state following a sequence of steps. However, the state is also modified
-   by following a sequence of events and an event handler.
-  
-   An event is an arbitrary map which describes something happening at some arbitrary step. As such, it must have a step associated
-   under the `step-key` key. Events are assumed to be sorted in chronological order (ie. by step).
+   (fn event [ctx]
+     (wq-execute ctx
+                 q)))
 
-   `handle-event` takes the current state and an event, it must return a new state. It is called everytime an event happens.
-  
 
-   Like `move-seq`, returns a lazy sequence of [state' step]."
+  ([ctx q]
 
-  ;; A bit ugly, but functional and somewhat efficient.
+   (let [wq (e-get ctx)]
+     (if (empty? wq)
+       (e-assoc ctx
+                q)
+       (-q-handle ctx
+                  q
+                  (-fn-restore-q-outer wq))))))
 
-  [state step-seq events handle-event]
 
-  (lazy-seq
-    (if-some [events' (seq events)]
-      (when-some [step (first step-seq)]
-        (loop [events'2 events'
-               state'   state]
-          (let [event (first events'2)]
-            (if (<= (or (get event
-                             step-key)
-                        (throw (IllegalArgumentException. "Event does not have a step")))
 
-                    step)
-              (let [state-after-event (handle-event state'
-                                                    event)]
-                (if-some [next-events (next events'2)]
-                  (recur next-events
-                         state-after-event)
-                  (let [moved-state (move state-after-event
-                                          step)]
-                    (cons [moved-state
-                           step]
-                          (move-seq moved-state
-                                    (rest step-seq))))))
-              (let [moved-state (move state'
-                                      step)]
-                (cons [moved-state
-                       step]
-                      (move-events moved-state
-                                   (rest step-seq)
-                                   events'2
-                                   handle-event)))))))
-      (move-seq state
-                step-seq))))
+
+(defn wq-meta
+
+  ""
+
+  [ctx]
+
+  (meta (e-get ctx)))
+
+
+
+
+(defn wq-mirror
+
+  ""
+
+  ;; TODO. Better name than event.
+
+  ([event]
+
+   (fn event-2 [ctx]
+     (wq-mirror ctx
+                event)))
+
+
+  ([ctx event]
+
+   (let [path' (path ctx)]
+     (assoc-in ctx
+               path'
+               (event (get-in ctx
+                              path')
+                      (ptime ctx))))))
+
+
+
+
+(defn wq-pred-repeat
+
+  ""
+
+  [_ctx n]
+
+  (when (pos? n)
+    (dec n)))
+
+
+
+
+(defn- -replay-captured
+
+  ;;
+
+  [ctx]
+
+  (let [mta (wq-meta ctx)]
+    (if-some [q (peek (::captured mta))]
+      (e-assoc ctx
+               (with-meta q
+                          mta))
+      (throw (IllegalStateException. "Nothing left to replay")))))
+
+
+
+
+(defn- -pop-stack
+
+  ;;
+
+  [hmap k]
+
+  (if-some [stack (not-empty (pop (get hmap
+                                       k)))]
+    (assoc hmap
+           k
+           stack)
+    (dissoc hmap
+            k)))
+
+
+
+
+(defn wq-replay
+
+  ""
+
+  ([pred?]
+
+   (fn event [ctx]
+     (wq-replay ctx
+                pred?)))
+
+
+  ([ctx pred?]
+
+   (if (pred? ctx)
+     (-replay-captured ctx)
+     (wq-vary-meta ctx
+                   (fn release-captured [mta]
+                     (-pop-stack mta
+                                 ::captured))))))
+
+
+
+
+(defn wq-sreplay
+
+  ""
+
+  ([pred seed]
+
+   (fn event [ctx]
+     (wq-sreplay ctx
+                 pred
+                 seed)))
+
+
+  ([ctx pred seed]
+
+   (let [pred-state (first (::sreplay (wq-meta ctx)))]
+     (if-let [pred-state-2 (pred ctx
+                                 (or pred-state
+                                     seed))]
+       (-> ctx
+           (wq-vary-meta (fn save-state [mta]
+                           (update mta
+                                   ::sreplay
+                                   (fn update-stack [sreplay]
+                                     (conj (pop sreplay)
+                                           pred-state-2)))))
+           -replay-captured)
+       (wq-vary-meta ctx
+                     (fn clean-state [mta]
+                       (-> mta
+                           (-pop-stack ::captured)
+                           (-pop-stack ::sreplay))))))))
+
+
+
+
+(defn wq-vary-meta
+
+  ""
+
+  ([f]
+
+   (fn event [ctx]
+     (wq-vary-meta ctx
+                   f)))
+
+
+  ([ctx f]
+
+   (update-in ctx
+              [::e-flat
+               ::queue]
+              vary-meta
+              f)))
+
+
+
+
+;;;;;;;;;; Flows
+
+
+(def rank-flows
+
+  ""
+
+  (long 1e9))
+
+
+
+
+(defn f-end
+
+  ""
+
+  [ctx]
+
+  (let [flow-path (f-path (path ctx))
+        flow-leaf (get-in ctx
+                          flow-path)
+        ctx-2     (dissoc-in ctx
+                             flow-path)]
+    (if-some [q (not-empty (::queue flow-leaf))]
+      (-q-handle (assoc-in ctx-2
+                           [::e-flat
+                            ::timevec]
+                           (assoc (::timevec-init flow-leaf)
+                                  0
+                                  (first (timevec ctx-2))))
+                 q)
+      ctx-2)))
+
+
+
+
+(defn- -f-sample*
+
+  ""
+
+  ;; TODO. void
+
+  [ctx ptime path node]
+
+  (if-some [flow (::flow node)]
+    (flow (assoc ctx
+                 ::e-flat
+                 {::path    path
+                  ::timevec (assoc (::timevec-init node)
+                                   0
+                                   ptime)}))
+    (reduce-kv (fn deeper [ctx-2 k node-next]
+                 (-f-sample* ctx
+                             ptime
+                             (conj path
+                                   k)
+                             node-next))
+               ctx
+               node)))
+
+
+
+
+(defn f-sample*
+
+  ""
+
+  ([ctx]
+
+   (f-sample* ctx
+              (path ctx)))
+
+
+  ([ctx path]
+
+   (-f-sample* ctx
+               (first (timevec ctx))
+               path
+               (get-in ctx
+                       (f-path path)))))
+
+
+
+
+(defn f-sample
+
+  ""
+
+  ;; TODO. User provided ranking.
+
+  ([]
+
+   (fn event [ctx]
+     (f-sample ctx)))
+
+
+  ([ctx]
+
+   (f-sample ctx
+             (timevec ctx)))
+
+
+  ([ctx timevec]
+
+   (f-sample ctx
+             timevec
+             (path ctx)))
+
+
+  ([ctx timevec path]
+
+   (update-in ctx
+              [::events
+               (into [(first timevec)
+                      rank-flows]
+                     (rest timevec))]
+              assoc-shortest
+              path
+              f-sample*)))
+
+
+
+
+(defn- -f-assoc
+
+  ;;
+
+  ([ctx flow]
+
+   (-f-assoc ctx
+             flow
+             nil))
+
+
+  ([ctx flow hmap]
+
+   (-> ctx
+       (assoc-in (f-path (path ctx))
+                 (merge hmap
+                        {::flow         flow
+                         ::timevec-init (timevec ctx)
+                         ::queue        (e-get ctx)}))
+       e-dissoc)))
+
+
+
+
+(defn f-infinite 
+
+  ""
+
+  ([flow]
+
+   (fn event [ctx]
+     (f-infinite ctx
+                 flow)))
+
+
+  ([ctx flow]
+
+   (-> ctx
+       (-f-assoc flow)
+       f-sample)))
+
+
+
+
+(defn- -f-finite
+
+  ;; Todo. void, assoc-some
+
+  [ctx after-sample duration flow]
+
+  (let [ptime       (::ptime ctx)
+        ptime-end   (+ ptime
+                       duration)
+        norm-ptime  (partial minmax-norm
+                             ptime
+                             duration)]
+    (-> ctx
+        (-f-assoc (fn norm-flow [ctx]
+                    (let [e-ptime (norm-ptime (::ptime ctx))
+                          ctx-2   (flow (assoc-in ctx
+                                                  [::e-flat
+                                                   ::ptime]
+                                                  e-ptime))]
+                      (if (>= e-ptime
+                              1)
+                        (f-end (update ctx-2
+                                       ::e-flat
+                                       dissoc
+                                       ::ptime))
+                        (after-sample ctx-2
+                                      ptime-end)))))
+        f-sample 
+        (f-sample (update (timevec ctx)
+                          0
+                          +
+                          duration)))))
+
+
+
+
+(defn f-finite
+
+  ""
+
+  ([duration flow]
+
+   (fn event [ctx]
+     (f-finite ctx
+               duration
+               flow)))
+
+
+  ([ctx flow duration]
+
+   (-f-finite ctx
+              identity
+              duration
+              flow)))
+
+
+
+
+(defn f-sampled
+
+  ""
+
+  ([ctx->timevec duration flow]
+
+   (fn event [ctx]
+     (f-sampled ctx
+                ctx->timevec
+                duration
+                flow)))
+
+
+  ([ctx ctx->timevec duration flow]
+
+   (-f-finite ctx
+              (fn schedule-sampling [ctx ptime-end]
+                (let [timevec-sample (ctx->timevec ctx)]
+                  (if (and timevec-sample
+                           (< (first timevec-sample)
+                              ptime-end))
+                    (f-sample ctx
+                                    timevec-sample)
+                    ctx)))
+              duration
+              flow)))

@@ -1,5 +1,5 @@
 # dev namespaces
-TODO.txt
+#TODO.txt
 /dev/*
 !/dev/user.clj
 

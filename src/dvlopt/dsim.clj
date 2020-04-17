@@ -4,7 +4,8 @@
 
   {:author "Adam Helinski"}
 
-  (:import clojure.lang.PersistentQueue))
+  (:import (clojure.lang ExceptionInfo
+                         PersistentQueue)))
 
 
 
@@ -988,17 +989,40 @@
    (let [event  (peek q)
          q-2    (pop q)
          [ctx-2
-          q-3]  (if (queue? event)
-                  [(-q-handle ctx
-                              event
-                              (-fn-restore-q-outer q-2))
-                   q-2]
-                  (let [ctx-2 (event (assoc-in ctx
-                                               [::e-flat
-                                                ::queue]
-                                               q-2))]
-                    [ctx-2
-                     (e-get ctx-2)]))]
+          q-3]  (try
+                  (if (queue? event)
+                    [(-q-handle ctx
+                                event
+                                (-fn-restore-q-outer q-2))
+                     q-2]
+                    (let [ctx-2 (event (assoc-in ctx
+                                                 [::e-flat
+                                                  ::queue]
+                                                 q-2))]
+                      [ctx-2
+                       (e-get ctx-2)]))
+                  
+                  (catch ExceptionInfo e
+                    (let [ctx-inner (::ctx (ex-data e))
+                          on-error  (::on-error (meta q))]
+                      (if (and ctx-inner
+                               on-error)
+                        (let [ctx-2 (on-error ctx
+                                              ctx-inner
+                                              e)]
+                          [ctx-2
+                           (e-get ctx-2)])
+                        (throw e))))
+                  (catch Throwable e
+                    (if-some [on-error (::on-error (meta q))]
+                      (let [ctx-2 (on-error ctx
+                                            nil
+                                            e)]
+                        [ctx-2
+                         (e-get ctx-2)])
+                      (throw (ex-info "Throwing in the latest context"
+                                      {::ctx (e-dissoc ctx)}
+                                      e)))))]
      (if (empty? q-3)
        (after-q ctx-2)
        (recur ctx-2

@@ -4,6 +4,8 @@
 
   {:author "Adam Helinski"}
 
+  (:require [dvlopt.dsim.util :as dsim.util]
+            [dvlopt.void      :as void])
   (:import (clojure.lang ExceptionInfo
                          PersistentQueue)))
 
@@ -25,207 +27,6 @@
 (declare e-update
          path
          wq-vary-meta)
-
-
-
-
-;;;;;;;;;; Handling trees
-
-
-(defn- -dissoc-in
-
-  ;; Cf. `dissoc-in`
-
-  [hmap [k & ks]]
-
-  (if (seq ks)
-    (let [v (get hmap
-                 k)]
-      (if (map? v)
-        (let [hmap-v (-dissoc-in v
-                                 ks)]
-          (if (empty? hmap-v)
-            (dissoc hmap
-                    k)
-            (assoc hmap
-                   k
-                   hmap-v)))
-        hmap))
-    (dissoc hmap
-            k)))
-
-
-
-
-(defn dissoc-in
-
-  "Deep dissoc, natural counterpart of Clojure's `assoc-in`.
-  
-   <!> Keys with nil values or empty maps are removed.
-  
-  
-   Eg. (dissoc-in {:a {:b 42}
-                   :c :ok}
-                  [:a :b])
-  
-       => {:c :ok}"
-
-  [hmap path]
-
-  (if (seq path)
-    (-dissoc-in hmap
-                path)
-    hmap))
-
-
-
-
-(defn- -update-some-in
-
-  ;;
-
-  [hmap [k & ks :as path] f]
-
-  (if (contains? hmap
-                 k)
-    (if-some [v (if (seq ks)
-                  (not-empty (-update-some-in (get hmap
-                                                   k)
-                                              ks
-                                              f))
-                  (f (get hmap
-                          k)))]
-      (assoc hmap
-             k
-             v)
-      (dissoc hmap
-              k))
-    (if-some [v (f nil)]
-      (assoc-in hmap
-                path
-                v)
-      hmap)))
-
-
-
-
-(defn update-some-in
-
-  ""
-
-  [hmap path f]
-
-  (if (seq path)
-    (-update-some-in hmap
-                     path
-                     f)
-    hmap))
-
-
-
-
-(defn deep-merge
-
-  ;; TODO. Move to void? Not being used here anymore.
-
-  [hmap-1 hmap-2]
-
-  (reduce-kv (fn merge-values [merged k v-2]
-               (let [v-1 (get merged
-                              k)
-                     v   (if (and (map? v-1)
-                                  (map? v-2))
-                           (not-empty (deep-merge v-1
-                                                  v-2))
-                           v-2)]
-                 (if (nil? v)
-                   (dissoc merged
-                           k)
-                   (assoc merged
-                          k
-                          v))))
-              hmap-1
-              hmap-2))
-
-
-
-
-(defn- -assoc-shortest
-
-  ;; 
-
-  [node [k & ks :as path] leaf]
-
-  (if (seq path)
-    (if (associative? node)
-      (if (contains? node
-                     k)
-        (assoc node
-               k
-               (-assoc-shortest (get node
-                                     k)
-                                ks
-                                leaf))
-        (assoc-in node
-                  path
-                  leaf))
-      node)
-    leaf))
-
-
-
-
-(defn assoc-shortest
-
-  ""
-
-  [hmap [k & ks :as path] leaf]
-
-  (if (seq path)
-    (if (contains? hmap
-                   k)
-      (assoc hmap
-             k
-             (-assoc-shortest (get hmap
-                                   k)
-                              ks
-                              leaf))
-      (assoc-in hmap
-                path
-                leaf))
-    hmap))
-
-
-
-
-(defn merge-shortest
-
-  ""
-
-  [hmap-1 hmap-2]
-
-  ;; TODO. #1 When neither is a map, still pick v-2 over v-1?
-  ;;          Shouldn't matter as (= v-1 v-2), by convention, supposedly.
-  ;;
-  ;; TODO. Really useful now there is `assoc-shortest`?
-
-  (reduce-kv (fn pick-shortest [hmap k v-2]
-               (if (contains? hmap
-                              k)
-                 (if (map? v-2)
-                   (let [v-1 (get hmap
-                                  k)]
-                     (if (map? v-1)
-                       (assoc hmap
-                              k
-                              (merge-shortest v-1
-                                              v-2))
-                       hmap))  ;; #1
-                   (assoc hmap
-                          k
-                          v-2))))
-             hmap-1
-             hmap-2))
 
 
 
@@ -680,9 +481,9 @@
 
   ([ctx timevec path]
 
-   (dissoc-in ctx
-              (e-path timevec
-                      path))))
+   (void/dissoc-in ctx
+                   (e-path timevec
+                           path))))
 
 
 
@@ -817,13 +618,13 @@
      (cond
        (queue? event) (let [event-2 (pop event)]
                         (if (empty? event-2)
-                          (dissoc-in ctx
-                                     e-path')
+                          (void/dissoc-in ctx
+                                          e-path')
                           (assoc-in ctx
                                     e-path'
                                     event-2)))
-       (fn? event)    (dissoc-in ctx
-                                 e-path')
+       (fn? event)    (void/dissoc-in ctx
+                                      e-path')
        :else          ctx))))
 
 
@@ -892,7 +693,7 @@
 
   ([ctx timevec path f]
 
-   (update-some-in ctx
+   (void/update-in ctx
                    (e-path timevec
                            path)
                    (comp -not-empty-event
@@ -1782,8 +1583,8 @@
   (let [flow-path (f-path (path ctx))
         flow-leaf (get-in ctx
                           flow-path)
-        ctx-2     (dissoc-in ctx
-                             flow-path)]
+        ctx-2     (void/dissoc-in ctx
+                                  flow-path)]
     (if-some [q (not-empty (::queue flow-leaf))]
       (-q-handle (assoc-in ctx-2
                            [::e-flat
@@ -1877,7 +1678,7 @@
                (into [(first timevec)
                       rank-flows]
                      (rest timevec))]
-              assoc-shortest
+              dsim.util/assoc-shortest
               path
               f-sample*)))
 

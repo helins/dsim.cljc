@@ -5,7 +5,8 @@
   :url          "https://github.com/dvlopt/dsim.clj"
   :license      {:name "Eclipse Public License"
                  :url  "http://www.eclipse.org/legal/epl-v10.html"}
-  :dependencies [[org.clojure/clojure "1.10.1"]]
+  :dependencies [[org.clojure/clojure "1.10.1"]
+                 [dvlopt/void         "1.0.0"]]
   :profiles     {:dev {:source-paths ["dev"]
                        :main         user
                        :dependencies [[com.taoensso/nippy     "2.14.0"]

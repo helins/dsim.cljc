@@ -11,7 +11,10 @@
             [clojure.test                    :as t]
             [criterium.core                  :as ct]
             [dvlopt.dsim                     :as dsim]
+            [dvlopt.dsim.util                :as dsim.util]
             [dvlopt.dsim-test                :as dsim-test]
+            [dvlopt.dsim.util-test           :as dsim.util-test]
+            [dvlopt.void                     :as void]
             [taoensso.nippy                  :as nippy]))
 
 

@@ -8,6 +8,23 @@
 
 
 
+;;;;;;;;;; Utilities for tests
+
+
+(defn full=
+
+  ;; = with meta as well.
+
+  [a b]
+
+  (and (= a
+          b)
+       (= (meta a)
+          (meta b))))
+
+
+
+
 ;;;;;;;;;; Time utilities
 
 
@@ -196,6 +213,33 @@
 
 
 
+(def event-inc
+
+  (dsim/wq-mirror (fn event [n _ptime]
+                    (inc n))))
+
+
+
+
+(defn event-writer
+
+  ([x]
+
+   (fn event [ctx]
+     (event-writer ctx
+                   x)))
+
+
+  ([ctx x]
+ 
+   (update-in ctx
+              (dsim/path ctx)
+              conj
+              x)))
+
+
+
+
 (def timevec
 
   [1000])
@@ -279,20 +323,6 @@
                        timevec
                        path))
         "In the event tree to nil"))
-
-
-
-
-(defn full=
-
-  ;; = with meta as well.
-
-  [a b]
-
-  (and (= a
-          b)
-       (= (meta a)
-          (meta b))))
 
 
 
@@ -503,13 +533,6 @@
 ;;;;;;;;;; Moving a context through time
 
 
-(def event-inc
-
-  (dsim/wq-mirror (fn event [n _ptime]
-                    (inc n))))
-
-
-
 (defn init-ctx
 
   [n]
@@ -517,7 +540,8 @@
   (merge dsim/ctx
          {:after  n
           :before n
-          :n      n}))
+          :n      n
+          :writer []}))
 
 
 
@@ -544,9 +568,23 @@
 
 
 
+(def op-jump-options
+
+  (assoc jump-options
+         ::dsim/e-handler
+         (dsim/op-applier {::inc   event-inc
+                           ::pred? (fn pred? [ctx n]
+                                     (< (get-in ctx
+                                                (dsim/path ctx))
+                                        n))
+                           ::writer event-writer})))
+
+
+
+
 (defn discrete-time-event
 
-  ;;
+  ;; Adds the same event n times with a time interval of 1.
 
   [ctx path n rank event]
 
@@ -664,8 +702,8 @@
                                                                                          (fn error [_ctx]
                                                                                            (throw (Exception. "Error")))
                                                                                          event-inc))
-                                                                 {::dsim/on-error (fn catch-error [ctx ctx-inner _e]
-                                                                                    (assoc ctx-inner
+                                                                 {::dsim/on-error (fn catch-error [catched]
+                                                                                    (assoc (::dsim/ctx-inner catched)
                                                                                            :handled
                                                                                            true))})))
                              jump-options))
@@ -764,20 +802,37 @@
 ;;
 
 
+(defn test-op-h
+
+  [h op-h]
+
+  (let [without-events (fn remove-events [h]
+                         (map #(dissoc %
+                                       ::dsim/events)
+                              h))]
+    (t/is (= (without-events h)
+             (without-events op-h))
+          "History of operation and functional history are equal without their events")))
+
+
+
+
 (t/deftest wq-delay
 
+  ;; Tests `wq-timevec+` as well.
 
-  (let [delay-1u (dsim/wq-delay (dsim/wq-timevec+ [1]))
-        h        (dsim/history (dsim/e-assoc (init-ctx 0)
-                                             [1]
-                                             [:n]
-                                             (dsim/queue event-inc
-                                                         delay-1u
-                                                         event-inc
-                                                         delay-1u
-                                                         event-inc))
+  (let [delay-1u   (dsim/wq-delay (dsim/wq-timevec+ [1]))
+        h          (dsim/history (dsim/e-assoc (init-ctx 0)
+                                               [1]
+                                               [:n]
+                                               (dsim/queue event-inc
+                                                           delay-1u
+                                                           event-inc
+                                                           delay-1u
+                                                           event-inc))
 
-                               jump-options)]
+                                 jump-options)
+        op-delay-1u [::dsim/delay [::dsim/timevec+ [1]]]]
 
     (t/is (= 3
              (count h))
@@ -785,32 +840,48 @@
 
     (t/is (= (jump-ctx 3)
              (last h))
-          "Inducing a delay has the same end result as scheduling everything in advance")))
+          "Inducing a delay has the same end result as scheduling everything in advance")
+
+    (test-op-h h
+               (dsim/history (dsim/e-assoc (init-ctx 0)
+                                           [1]
+                                           [:n]
+                                           (dsim/queue [::inc]
+                                                       op-delay-1u
+                                                       [::inc]
+                                                       op-delay-1u
+                                                       [::inc]))
+                             op-jump-options))))
 
 
 
 
-(t/deftest wq-execute
+(t/deftest wq-exec
 
 
   (let [q-inner (dsim/queue event-inc
-                            event-inc)]
+                            event-inc)
+        h       (dsim/history (dsim/e-conj (init-ctx 0)
+                                           [0]
+                                           [:n]
+                                           (dsim/queue (dsim/wq-exec q-inner)))
+                              jump-options)]
+
     (t/is (= (dsim/history (dsim/e-conj (init-ctx 0)
                                         [0]
                                         [:n]
                                         (dsim/queue q-inner))
                            jump-options)
-             (dsim/history (dsim/e-conj (init-ctx 0)
-                                        [0]
-                                        [:n]
-                                        (dsim/queue (dsim/wq-execute q-inner)))
-                           jump-options))
-          "Executing dynamicaly an inner queue has the same end result as nesting it in advance")))
+             h)
+          "Executing dynamicaly an inner queue has the same end result as nesting it in advance")
 
-
-
-
-
+    (test-op-h h
+               (dsim/history (dsim/e-conj (init-ctx 0)
+                                          [0]
+                                          [:n]
+                                          (dsim/queue [::dsim/exec (dsim/queue [::inc]
+                                                                               [::inc])]))
+                             op-jump-options))))
 
 
 
@@ -829,14 +900,24 @@
                                        [:n]
                                        (dsim/queue dsim/wq-capture
                                                    event-inc
-                                                   (dsim/wq-replay pred?))))]
+                                                   (dsim/wq-replay pred?)))
+                          jump-options)]
       (t/is (= 1
                (count h))
             "Everything should be replayed during the same ptime")
 
       (t/is (= 10
                (:n (last h)))
-            "N should be incremented to 10"))
+            "N should be incremented to 10")
+
+      (test-op-h h
+                 (dsim/history (dsim/e-conj (init-ctx 0)
+                                            [1]
+                                            [:n]
+                                            (dsim/queue [::dsim/capture]
+                                                        [::inc]
+                                                        [::dsim/replay [::pred? n]]))
+                               op-jump-options)))
 
 
     (let [h (dsim/history (dsim/e-conj (init-ctx 0)
@@ -845,33 +926,30 @@
                                        (dsim/queue dsim/wq-capture
                                                    event-inc
                                                    (dsim/wq-delay (dsim/wq-timevec+ [1]))
-                                                   (dsim/wq-replay pred?))))]
+                                                   (dsim/wq-replay pred?)))
+                          jump-options)]
       (t/is (= 11
                (count h))
             "Every replay happens at a future timepoint + an additional ptime for deciding to stop")
 
       (t/is (= 10
                (:n (last h)))
-            "Adding delays does not impact computation"))))
+            "Adding delays does not impact computation")
+
+      (test-op-h h
+                 (dsim/history (dsim/e-conj (init-ctx 0)
+                                            [1]
+                                            [:n]
+                                            (dsim/queue [::dsim/capture]
+                                                        [::inc]
+                                                        [::dsim/delay [::dsim/timevec+ [1]]]
+                                                        [::dsim/replay [::pred? n]]))
+                               op-jump-options)))))
 
 
 
 
-(defn event-writer
 
-  ([x]
-
-   (fn event [ctx]
-     (event-writer ctx
-                   x)))
-
-
-  ([ctx x]
- 
-   (update-in ctx
-              (dsim/path ctx)
-              conj
-              x)))
 
 
 
@@ -879,20 +957,32 @@
 (t/deftest wq-sreplay
 
   (t/is (= [:out :in :in :out :out :in :in :out]
-           (:writer (dsim/jump-to-end (-> dsim/ctx
-                                          (dsim/e-conj [1]
-                                                       [:writer]
-                                                       (dsim/queue dsim/wq-capture
-                                                                   (event-writer :out)
-                                                                   dsim/wq-capture
-                                                                   (event-writer :in)
-                                                                   (dsim/wq-sreplay dsim/wq-pred-repeat
-                                                                                    1)
-                                                                   (event-writer :out)
-                                                                   (dsim/wq-sreplay dsim/wq-pred-repeat
-                                                                                    1)))
-                                          (assoc :writer
-                                                 [])))))
+           (:writer (dsim/jump-to-end (dsim/e-conj (init-ctx 0)
+                                                   [1]
+                                                   [:writer]
+                                                   (dsim/queue dsim/wq-capture
+                                                               (event-writer :out)
+                                                               dsim/wq-capture
+                                                               (event-writer :in)
+                                                               (dsim/wq-sreplay dsim/wq-pred-repeat
+                                                                                1)
+                                                               (event-writer :out)
+                                                               (dsim/wq-sreplay dsim/wq-pred-repeat
+                                                                                1)))
+                                       jump-options))
+           (:writer (dsim/jump-to-end (dsim/e-conj (init-ctx 0) 
+                                                   [1]
+                                                   [:writer]
+                                                   (dsim/queue [::dsim/capture]
+                                                               [::writer :out]
+                                                               [::dsim/capture]
+                                                               [::writer :in]
+                                                               [::dsim/sreplay [::dsim/pred-repeat]
+                                                                               1]
+                                                               [::writer :out]
+                                                               [::dsim/sreplay [::dsim/pred-repeat]
+                                                                               1]))
+                                      op-jump-options)))
         "An inner loop within an outer one"))
 
 
@@ -997,13 +1087,6 @@
                                                                  (event-writer :c))
                                                  (dsim/wq-sreplay dsim/wq-pred-repeat
                                                                   2))))]
-
-    (t/is (= (apply concat
-                    (repeat 3
-                            [:a :a :a :b :c :c]))
-             (:writer (last h)))
-          "Mixing and repeating flows should be flawless")
-
     (t/is (= [[:a]
               [:a :a]
               [:a :a :a :b]

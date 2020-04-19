@@ -1,6 +1,8 @@
 (ns dvlopt.dsim
 
-  "Idiomatic, purely-functional discrete event simulation."
+  "Idiomatic, purely-functional discrete event simulation and more.
+  
+   See README first in order to make sense of all this."
 
   {:author "Adam Helinski"}
 
@@ -12,9 +14,20 @@
 
 
 
-;; MAYBEDO. Data-driven (ie. serializable).
-;; MAYBEDO. Hack persistent queues so that they can also act as a stack?
-;; MAYBEDO. Parallelize by ranks?
+;;;;;;;;;; MAYBEDO
+
+
+;;  Hack persistent queues so that they can also act as a stack?
+;;  
+;;  The front is implemented as a seq, so prepending is efficient, but the seq is
+;;  package private. Relying on non-public features is not recommended. On the other
+;;  hand, it is fairly certain the implementation will stay like this.
+
+
+;;  Parallelize by timevec?
+;;
+;;  By definition, all events for a given timevec are independent, meaning that they
+;;  can be parallelized without a doubt if needed.
 
 
 
@@ -23,6 +36,7 @@
 
 
 (declare e-update
+         op-std
          path
          wq-vary-meta)
 
@@ -772,32 +786,35 @@
 
 
 
-(defn- -q-handle
+(defn- -q-exec
 
   ;;
 
-  ([ctx q]
+  ([e-handler ctx q]
 
-   (-q-handle ctx
-              q
-              identity))
+   (-q-exec e-handler
+            ctx
+            q
+            identity))
 
 
-  ([ctx q after-q]
+  ([e-handler ctx q after-q]
 
    (let [event  (peek q)
          q-2    (pop q)
          [ctx-2
           q-3]  (try
                   (if (queue? event)
-                    [(-q-handle ctx
-                                event
-                                (-fn-restore-q-outer q-2))
+                    [(-q-exec e-handler
+                              ctx
+                              event
+                              (-fn-restore-q-outer q-2))
                      q-2]
-                    (let [ctx-2 (event (assoc-in ctx
-                                                 [::e-flat
-                                                  ::queue]
-                                                 q-2))]
+                    (let [ctx-2 (e-handler (assoc-in ctx
+                                                     [::e-flat
+                                                      ::queue]
+                                                     q-2)
+                                           event)]
                       [ctx-2
                        (e-get ctx-2)]))
                   
@@ -806,64 +823,69 @@
                           on-error  (::on-error (meta q))]
                       (if (and ctx-inner
                                on-error)
-                        (let [ctx-2 (on-error ctx
-                                              ctx-inner
-                                              e)]
+                        (let [ctx-2 (e-handler {::ctx       ctx
+                                                ::ctx-inner ctx-inner
+                                                ::error     e}
+                                               on-error)]
                           [ctx-2
                            (e-get ctx-2)])
                         (throw e))))
                   (catch Throwable e
                     (if-some [on-error (::on-error (meta q))]
-                      (let [ctx-2 (on-error ctx
-                                            nil
-                                            e)]
+                      (let [ctx-2 (e-handler {:ctx   ctx
+                                              :error e}
+                                             e-handler)]
                         [ctx-2
                          (e-get ctx-2)])
-                      (throw (ex-info "Throwing in the latest context"
+                      (throw (ex-info "Throwing in the last computed context"
                                       {::ctx (e-dissoc ctx)}
                                       e)))))]
      (if (empty? q-3)
        (after-q ctx-2)
-       (recur ctx-2
+       (recur e-handler
+              ctx-2
               q-3
               after-q)))))
 
 
 
 
-(defn- -fn-f-execute
+(defn- -fn-u-exec
 
   ;;
 
-  [path f]
+  [path op]
   
-  (fn f-execute [ctx timevec]
-    (let [ctx-2 (f (update ctx
-                           ::e-flat
-                           merge
-                           {::path  path
-                            ::queue (queue)}))
+  (fn u-exec [e-handler ctx]
+    (let [ctx-2 (e-handler (update ctx
+                                   ::e-flat
+                                   merge
+                                   {::path  path
+                                    ::queue (queue)})
+                           op)
           wq    (e-get ctx)]
       (if (empty? wq)
         ctx-2
-        (-q-handle ctx-2
-                   wq)))))
+        (-q-exec e-handler
+                 ctx-2
+                 wq)))))
 
 
 
 
-(defn- -fn-q-execute
+(defn- -fn-q-exec
 
   ;;
 
-  [path events]
+  [path q]
 
-  (fn q-execute [ctx timevec]
-    (-q-handle (assoc-in ctx
-                         [::e-flat
-                          ::path]
-                         path)
-               events)))
+  (fn q-exec [e-handler ctx]
+    (-q-exec e-handler
+             (assoc-in ctx
+                       [::e-flat
+                        ::path]
+                       path)
+             q)))
 
 
 
@@ -895,28 +917,26 @@
                                (assoc node
                                       k
                                       node-next-2))))
-      (fn? node)    [nil
-                     (-fn-f-execute path
-                                    node)]
       (queue? node) [nil
-                     (-fn-q-execute path
-                                    node)]
-      :else         (throw (ex-info "Node must be a map, a function or a queue"
-                                    {::node node})))))
+                     (-fn-q-exec path
+                                 node)]
+      :else         [nil
+                     (-fn-u-exec path
+                                 node)])))
 
 
 
 
-
-(defn- -e-execute
+(defn- -e-exec
 
   ;;
 
-  [ctx timevec e-tree]
+  [e-handler ctx timevec e-tree]
 
   (let [[popped-events
          leaf-handler] (-e-fetch e-tree)]
-    (leaf-handler (-> ctx
+    (leaf-handler e-handler
+                  (-> ctx
                       (update ::events
                               (fn update-popped [events]
                                 (if (empty? popped-events)
@@ -926,8 +946,7 @@
                                          timevec
                                          popped-events))))
                       (assoc ::e-flat
-                             {::timevec timevec}))
-                  timevec)))
+                             {::timevec timevec})))))
 
 
 
@@ -1011,8 +1030,34 @@
 
   [ctx after-ptime]
 
-  (after-ptime (dissoc ctx
-                       ::e-flat)))
+  (-> ctx
+      (dissoc ::e-flat)
+      after-ptime))
+
+
+
+
+(defn- -remove-e-handler
+
+  ;;
+
+  [ctx]
+
+  (vary-meta ctx
+             (fn clean-e-handler [mta]
+               (not-empty (dissoc mta
+                                  ::e-handler)))))
+
+
+
+
+(defn- -e-handler-f
+
+  ;;
+
+  [ctx f]
+
+  (f ctx))
 
 
 
@@ -1021,15 +1066,16 @@
 
   ;; A bit fugly, but straightforward, or is it...
 
-  [ctx ptime e-timevec e-tree pred before-ptime after-ptime]
+  [ctx ptime e-timevec e-tree pred e-handler before-ptime after-ptime]
 
   (loop [ctx       ctx
          ptime     ptime
          e-timevec e-timevec
          e-tree    e-tree]
-    (let [ctx-2                 (-e-execute ctx
-                                            e-timevec
-                                            e-tree)
+    (let [ctx-2                 (-e-exec e-handler
+                                         ctx
+                                         e-timevec
+                                         e-tree)
           [[e-ptime-next
             :as e-timevec-next]
            e-tree-next
@@ -1084,16 +1130,23 @@
        (or (pred ctx
                  nil
                  ptime)
-           (let [before-ptime (-fn-before-ptime options)
+           (let [e-handler    (or (::e-handler options)
+                                  -e-handler-f)
+                 before-ptime (-fn-before-ptime options)
                  after-ptime  (-fn-after-ptime options)]
-             (-jump-until (before-ptime ctx
-                                        ptime)
-                          ptime
-                          e-timevec
-                          e-tree
-                          pred
-                          before-ptime
-                          after-ptime)))
+             (-> ctx
+                 (vary-meta assoc
+                            ::e-handler
+                            e-handler)
+                 (before-ptime ptime)
+                 (-jump-until ptime
+                              e-timevec
+                              e-tree
+                              pred
+                              e-handler
+                              before-ptime
+                              after-ptime)
+                 -remove-e-handler)))
        ctx))))
 
 
@@ -1169,11 +1222,12 @@
 
   ;;
 
-  [ctx ptime e-timevec e-tree before-ptime after-ptime]
+  [ctx ptime e-timevec e-tree e-handler before-ptime after-ptime]
 
-  (let [ctx-2 (-e-execute ctx
-                          e-timevec
-                          e-tree)]
+  (let [ctx-2 (-e-exec e-handler
+                       ctx
+                       e-timevec
+                       e-tree)]
     (if-some [[[e-ptime-next
                 :as e-timevec-next]
                e-tree-next]         (-e-next ctx-2)]
@@ -1183,17 +1237,19 @@
                                ptime
                                e-timevec-next
                                e-tree-next
+                               e-handler
                                before-ptime
                                after-ptime)
         (> e-ptime-next
            ptime)       (let [ctx-3 (after-ptime ctx-2)]
-                          (cons ctx-3
+                          (cons (-remove-e-handler ctx-3)
                                 (lazy-seq
                                   (-history (before-ptime ctx-3
                                                           e-ptime-next)
                                             e-ptime-next
                                             e-timevec-next
                                             e-tree-next
+                                            e-handler
                                             before-ptime
                                             after-ptime))))
         :else           (-throw-ptime-current e-ptime-next
@@ -1223,12 +1279,18 @@
        (-validate-ctx-ptime ctx
                             ptime)
        (let [before-ptime (-fn-before-ptime options)
-             after-ptime  (-fn-after-ptime options)]
-         (-history (before-ptime ctx
-                                 ptime)
+             after-ptime  (-fn-after-ptime options)
+             e-handler    (or (::e-handler options)
+                              -e-handler-f)]
+         (-history (-> ctx
+                       (vary-meta assoc
+                                  ::e-handler
+                                  e-handler)
+                       (before-ptime ptime))
                    ptime
                    e-timevec
                    e-tree
+                   e-handler
                    before-ptime
                    (fn after-ptime-2 [ctx]
                      (-after-eager-jump ctx
@@ -1355,7 +1417,7 @@
 
 
   ([ctx ctx->timevec]
-
+  
    (e-dissoc (wq-copy ctx
                       ctx->timevec))))
 
@@ -1375,26 +1437,25 @@
 
 
 
-(defn wq-execute
+(defn wq-exec
 
   ""
 
   ([q]
 
    (fn event [ctx]
-     (wq-execute ctx
-                 q)))
+     (wq-exec ctx
+              q)))
 
 
   ([ctx q]
 
    (let [wq (e-get ctx)]
-     (if (empty? wq)
-       (e-assoc ctx
-                q)
-       (-q-handle ctx
-                  q
-                  (-fn-restore-q-outer wq))))))
+     (e-assoc ctx
+              (if (empty? wq)
+                q
+                (queue wq
+                       q))))))
 
 
 
@@ -1560,6 +1621,97 @@
 
 
 
+;;;;;;;;;; Operation handling
+
+
+(defn op-applier
+
+  ""
+
+  [k->f]
+
+  (let [k->f-2 (merge k->f
+                      op-std)]
+    (fn e-handler
+      
+      ([k]
+
+       (or (get k->f-2
+                k)
+           (throw (ex-info (format "Function not found for operation: %s"
+                                   k)
+                           {::ctx  ctx
+                            ::op-k k}))))
+
+      ([ctx [k & args :as op]]
+
+       (apply (e-handler k)
+              ctx
+              args)))))
+
+
+
+
+(defn op-exec
+
+  ""
+
+  [ctx op]
+
+  (if-some [e-handler (::e-handler (meta ctx))]
+    (e-handler ctx
+               op)
+    (throw (ex-info "No operation handler has been provided"
+                    {::ctx ctx}))))
+
+
+
+
+(def op-std
+
+  ""
+
+  {::breaker     (fn event [ctx op-pred?]
+                   (wq-breaker ctx
+                               (fn pred? [ctx]
+                                 (op-exec ctx
+                                          op-pred?))))
+   ::capture     wq-capture
+   ::delay       (fn event [ctx op-ctx->timevec]
+                   (wq-delay ctx
+                             (fn ctx->timevec [ctx]
+                               (op-exec ctx
+                                        op-ctx->timevec))))
+   ::do!         (fn event [ctx op-side-effect]
+                   (wq-do! ctx
+                           (fn side-effect-2 [ctx]
+                             (op-exec ctx
+                                      op-side-effect))))
+   ::exec        wq-exec
+   ::mirror      (fn event [ctx op-mirror]
+                   (wq-mirror ctx
+                              (fn mirror [data ptime]
+                                (op-exec data
+                                         (conj op-mirror
+                                               ptime)))))
+   ::pred-repeat wq-pred-repeat
+   ::replay      (fn event [ctx op-pred?]
+                   (wq-replay ctx
+                              (fn pred? [ctx]
+                                (op-exec ctx
+                                         op-pred?))))
+   ::sreplay     (fn event [ctx op-pred seed]
+                   (wq-sreplay ctx
+                               (fn pred [ctx state]
+                                 (op-exec ctx
+                                          (conj op-pred
+                                                state)))
+                               seed))
+   ::timevec+    wq-timevec+})
+
+
+
+
 ;;;;;;;;;; Flows
 
 
@@ -1584,21 +1736,20 @@
         ctx-2     (void/dissoc-in ctx
                                   flow-path)]
     (if-some [q (not-empty (::queue flow-leaf))]
-      (-q-handle (assoc-in ctx-2
-                           [::e-flat
-                            ::timevec]
-                           (assoc (::timevec-init flow-leaf)
-                                  0
-                                  (first (timevec ctx-2))))
-                 q)
+      (-q-exec (::e-handler (meta ctx-2))
+               (assoc-in ctx-2
+                         [::e-flat
+                          ::timevec]
+                         (assoc (::timevec-init flow-leaf)
+                                0
+                                (first (timevec ctx-2))))
+               q)
       ctx-2)))
 
 
 
 
 (defn- -f-sample*
-
-  ""
 
   ;; TODO. void
 
@@ -1635,7 +1786,8 @@
 
   ([ctx path]
 
-   (-f-sample* ctx
+   (-f-sample* (e-assoc ctx
+                        (queue))
                (first (timevec ctx))
                path
                (get-in ctx

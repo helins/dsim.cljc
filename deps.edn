@@ -1,0 +1,26 @@
+{:deps
+ {dvlopt/void         {:mvn/version "1.0.1"}
+  org.clojure/clojure {:mvn/version "1.10.1"}}
+
+ :paths
+ ["src"]
+
+ :aliases
+ {:deploy
+  {:extra-deps {deps-deploy {:mvn/version "0.0.9"}}
+   :main-opts ["-m" "deps-deploy.deps-deploy" "deploy" "void.jar"]}
+
+  :dev
+  {:extra-deps {com.taoensso/nippy     {:mvn/version "2.14.0"}
+                criterium              {:mvn/version "0.4.5"}
+                org.clojure/test.check {:mvn/version "0.10.0"}}
+   :extra-paths ["dev"
+                 "test"]}
+
+  :jar
+  {:extra-deps {seancorfield/depstar {:mvn/version "0.5.2"}}
+   :main-opts ["-m" "hf.depstar.jar" "void.jar"]}
+
+  :install
+  {:extra-deps {deps-deploy {:mvn/version "0.0.9"}}
+   :main-opts ["-m" "deps-deploy.deps-deploy" "install" "void.jar"]}}}

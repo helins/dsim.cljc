@@ -12,11 +12,9 @@
 
 
 
-;; TODO. Error handling in metadata.
-;; TODO. Hack persistent queues so that they can also act as a stack?
-;; TODO. Graph of ranks by logical path using Stuart Sierra's dependency lib.
-;; TODO. Data-driven (ie. serializable).
-;; TOOD. Parallelize by ranks?
+;; MAYBEDO. Data-driven (ie. serializable).
+;; MAYBEDO. Hack persistent queues so that they can also act as a stack?
+;; MAYBEDO. Parallelize by ranks?
 
 
 

@@ -2,14 +2,9 @@
 
   "For daydreaming in the REPL." 
 
-  (:require [clojure.spec.alpha              :as s]
-            [clojure.spec.gen.alpha          :as gen]
-            [clojure.spec.test.alpha         :as st]
-            [clojure.test.check.clojure-test :as tt]
-            [clojure.test.check.generators   :as tgen]
-            [clojure.test.check.properties   :as tprop]
+  (:require [criterium.core                  :as C]
+            [clojure.repl]
             [clojure.test                    :as t]
-            [criterium.core                  :as ct]
             [dvlopt.dsim                     :as dsim]
             [dvlopt.dsim.util                :as dsim.util]
             [dvlopt.dsim-test                :as dsim-test]

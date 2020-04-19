@@ -26,5 +26,6 @@
    :main-opts ["-m" "deps-deploy.deps-deploy" "install" "void.jar"]}
 
   :test
-  {:extra-deps  {lambdaisland/kaocha {:mvn/version "1.0-612"}}
+  {:extra-deps  {lambdaisland/kaocha      {:mvn/version "1.0-612"}
+                 lambdaisland/kaocha-cljs {:mvn/version "0.0-71"}}
    :extra-paths ["test"]}}}

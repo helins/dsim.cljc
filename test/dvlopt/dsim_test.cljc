@@ -522,7 +522,8 @@
                           [1 1 0]))
         "Timevec has more dimensions")
 
-  (t/is (thrown? Throwable
+  (t/is (thrown? #?(:clj  Throwable
+                    :cljs js/Error)
                  (dsim/timevec+ [0 0 0]
                                 [-1]))
         "Adding a negative ptime will throw"))
@@ -700,7 +701,8 @@
                                           [:n]
                                           (dsim/queue (with-meta (dsim/queue (dsim/queue event-inc
                                                                                          (fn error [_ctx]
-                                                                                           (throw (Exception. "Error")))
+                                                                                           (throw (ex-info "Shit happens"
+                                                                                                           {})))
                                                                                          event-inc))
                                                                  {::dsim/on-error (fn catch-error [catched]
                                                                                     (assoc (::dsim/ctx-inner catched)

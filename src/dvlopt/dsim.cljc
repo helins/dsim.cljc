@@ -8,8 +8,8 @@
 
   (:require [dvlopt.dsim.util :as dsim.util]
             [dvlopt.void      :as void])
-  (:import (clojure.lang ExceptionInfo
-                         PersistentQueue)))
+  #?(:clj (:import (clojure.lang ExceptionInfo
+                                 PersistentQueue))))
 
 
 
@@ -85,7 +85,8 @@
 
   ([]
 
-   PersistentQueue/EMPTY)
+   #?(:clj  PersistentQueue/EMPTY
+      :cljs cljs.core/PersistentQueue.EMPTY))
 
 
   ([& values]
@@ -102,7 +103,8 @@
 
   [x]
 
-  (instance? PersistentQueue
+  (instance? #?(:clj  PersistentQueue
+                :cljs cljs.core/PersistentQueue)
              x))
 
 
@@ -818,20 +820,27 @@
                       [ctx-2
                        (e-get ctx-2)]))
                   
-                  (catch ExceptionInfo e
-                    (let [ctx-inner (::ctx (ex-data e))
-                          on-error  (::on-error (meta q))]
-                      (if (and ctx-inner
-                               on-error)
-                        (let [ctx-2 (e-handler {::ctx       ctx
-                                                ::ctx-inner ctx-inner
-                                                ::error     e}
+                  (catch ExceptionInfo err
+                    (let [err-data (ex-data err)]
+                      (if-some [on-error (::on-error (meta q-2))]
+                        (let [ctx-2 (e-handler (void/assoc {::ctx   ctx
+                                                            ::error err}
+                                                           ::ctx-inner (::ctx err-data))
                                                on-error)]
                           [ctx-2
                            (e-get ctx-2)])
-                        (throw e))))
-                  (catch Throwable e
-                    (if-some [on-error (::on-error (meta q))]
+                        (throw (if (contains? err-data
+                                              ::ctx)
+                                 err
+                                 (ex-info (ex-message err)
+                                          (assoc err-data
+                                                 ::ctx
+                                                 (e-dissoc ctx))
+                                          (ex-cause err)))))))
+                  (catch #?(:clj  Throwable
+                            :cljs js/Error)
+                         e
+                    (if-some [on-error (::on-error (meta q-2))]
                       (let [ctx-2 (e-handler {:ctx   ctx
                                               :error e}
                                              e-handler)]
@@ -1097,10 +1106,9 @@
                                      e-ptime-next
                                      e-timevec-next
                                      e-tree-next)))
-        :else             (throw
-                            (IllegalStateException. (format "Point in time of enqueued events (%f) is < current ptime (%f)"
-                                                            e-ptime-next
-                                                            ptime))))
+        :else             (throw (ex-info "Point in time of enqueued events is < current ptime"
+                                          {::e-ptime e-ptime-next
+                                           ::ptime   ptime})))
       (-after-eager-jump ctx-2
                          after-ptime)))))
 
@@ -1428,11 +1436,17 @@
 
   ""
 
-  [side-effect]
+  ([side-effect]
 
-  (fn event [ctx]
-    (side-effect ctx)
-    ctx))
+   (fn event [ctx]
+     (wq-do! ctx
+             side-effect)))
+
+
+  ([ctx side-effect]
+
+   (side-effect)
+   ctx))
 
 
 
@@ -1519,7 +1533,8 @@
       (e-assoc ctx
                (with-meta q
                           mta))
-      (throw (IllegalStateException. "Nothing left to replay")))))
+      (throw (ex-info "There is nothing captured to replay"
+                      {::ctx ctx})))))
 
 
 
@@ -1638,8 +1653,7 @@
 
        (or (get k->f-2
                 k)
-           (throw (ex-info (format "Function not found for operation: %s"
-                                   k)
+           (throw (ex-info "Function not found for operation"
                            {::ctx  ctx
                             ::op-k k}))))
 

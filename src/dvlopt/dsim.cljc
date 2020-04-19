@@ -14,6 +14,22 @@
 
 
 
+;;;;;;;;;; API structure (searchable for easy navigation)
+;;
+;; @[datastruct]  Data structures
+;; @[misc]        Miscellaneous functions
+;; @[scale]       Scaling numerical values
+;; @[ctx]         Generalities about contextes
+;; @[events]      Adding, removing, and modifying events
+;; @[timevecs]    Handling timevecs
+;; @[jump]        Moving a context through time
+;; @[wq]          Relative to the currently executed queue (aka. the "working queue")
+;; @[op]          Operation handling
+;; @[flows]       Creating and managing flows
+
+
+
+
 ;;;;;;;;;; MAYBEDO
 
 
@@ -43,7 +59,7 @@
 
 
 
-;;;;;;;;;; Data structures
+;;;;;;;;;; @[datastruct]  Data structures
 
 
 (def ^:private -rmap-empty
@@ -110,7 +126,7 @@
 
 
 
-;;;;;;;;;; Time utilities
+;;;;;;;;;; @[misc]  Miscellaneous functions
 
 
 (defn millis->utime
@@ -138,7 +154,7 @@
 
 
 
-;;;;;;;;;; Scaling numerical values
+;;;;;;;;;; @[scale]  Scaling numerical values
 
 
 (defn- -minmax-denorm
@@ -215,7 +231,7 @@
 
 
 
-;;;;;;;;; Generalities about contextes
+;;;;;;;;; @[ctx]  Generalities about contextes
 
 
 (def ctx
@@ -370,7 +386,7 @@
 
 
 
-;;;;;;;;;; Adding, removing, and modifying events
+;;;;;;;;;; @[events]  Adding, removing, and modifying events
 
 
 (defn- -ex-ctx
@@ -716,7 +732,7 @@
 
 
 
-;;;;;;;;;; Timevecs
+;;;;;;;;;; @[timevecs]  Handling timevecs
 
 
 (defn timevec+
@@ -770,7 +786,7 @@
 
 
 
-;;;;;;;;;; Moving a context through time
+;;;;;;;;;; @[jump]  Moving a context through time
 
 
 (defn- -fn-restore-q-outer
@@ -1307,7 +1323,7 @@
 
 
 
-;;;;;;;;;; Relative to the currently executed queue (aka. the "working queue")
+;;;;;;;;;; @[wq]  Relative to the currently executed queue (aka. the "working queue")
 ;;
 ;;
 ;; Manipulating the working queue, creating events to do so, or quering data about it.
@@ -1636,7 +1652,7 @@
 
 
 
-;;;;;;;;;; Operation handling
+;;;;;;;;;; @[op]  Operation handling
 
 
 (defn op-applier
@@ -1726,7 +1742,7 @@
 
 
 
-;;;;;;;;;; Flows
+;;;;;;;;;; @[flows]  Creating and managing flows
 
 
 (def rank-flows

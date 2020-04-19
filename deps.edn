@@ -23,4 +23,8 @@
 
   :install
   {:extra-deps {deps-deploy {:mvn/version "0.0.9"}}
-   :main-opts ["-m" "deps-deploy.deps-deploy" "install" "void.jar"]}}}
+   :main-opts ["-m" "deps-deploy.deps-deploy" "install" "void.jar"]}
+
+  :test
+  {:extra-deps  {lambdaisland/kaocha {:mvn/version "1.0-612"}}
+   :extra-paths ["test"]}}}

@@ -2,7 +2,7 @@
 
   "Idiomatic, purely-functional discrete event simulation and more.
   
-   See README first in order to make sense of all this."
+   See README first in order to make sense of all this. It provides definitions and rationale for concepts."
 
   {:author "Adam Helinski"}
 
@@ -12,6 +12,7 @@
                                  PersistentQueue))))
 
 
+;; TODO. wq-vary-meta & args
 
 
 ;;;;;;;;;; API structure (searchable for easy navigation)
@@ -75,7 +76,7 @@
 
 (defn rmap
 
-  ""
+  "Creates a ranked map."
 
   ([]
 
@@ -97,7 +98,9 @@
 
 (defn queue
 
-  ""
+  "Clojure has persistent queues but no easy way to create them.
+  
+   Here is one."
 
   ([]
 
@@ -115,7 +118,7 @@
 
 (defn queue?
 
-  ""
+  "Is `x` a persistent queue?"
 
   [x]
 
@@ -131,18 +134,18 @@
 
 (defn millis->utime
 
-  ;; TODO. Doc
+  "Converts an interval in milliseconds to an arbitrary time unit happening `hz` times per second.
 
-  "Computes the number of steps needed for completing a transition in `millis` milliseconds for a phenomenon,
-   such as the frame-rate, happening `hz` per second.
-  
-  
-   Eg. Computing the number of frames needed in order to last 2000 milliseconds with a frame-rate of 60.
+   ```clojure
+   ;; Coneverting milliseconds to frames for an animation.
+   ;; We know something lasts 2000 milliseconds and the frame-rate is 60 times per second.
+   ;; Hence, it lasts 120 frames.
 
-       (millis->n-steps 2000
-                        60)
-  
-       => 120"
+   (millis->utime 2000
+                  60)
+   
+   120
+   ```"
 
   [millis hz]
 
@@ -160,6 +163,8 @@
 (defn- -minmax-denorm
 
   ;; Scale a percent value to an arbitrary range.
+  ;;
+  ;; Undoes [[minimax-norm]].
 
   [min-v interval v-norm]
 
@@ -172,27 +177,29 @@
 
 (defn scale
   
-  ;; TODO. Obviously linear.
+  "Linear scaling of numerical values.
 
-  "3 args : scales a `percent` value (between 0 and 1 inclusive) to a value between `scaled-a` and `scaled-b`.
+   Arity 3: scales a `percent` value to be between `min-v` and (+ `min-v` `interval`) inclusive.
 
-   5 args : scales the `x` value between `a` and `b` to be between `scaled-a` and `scaled-b`.
+   Arity 5: scales `v`, between `min-v` and (+ `min-v` `interval`), to be between `scaled-min`v and
+            (+ `scaled-min-v` `scaled-interval`) inclusive.
 
-  
-   Eg. (scale 200
-              100
-              0.5)
+   ```clojure
+   (scale 200
+          100
+          0.5)
 
-       => 250
+   250
 
 
-       (scale 200
-              100
-              2000
-              1000
-              2500)
+   (scale 200
+          100
+          2000
+          1000
+          2500)
 
-       => 250"
+   250
+   ```"
 
   ([min-v interval percent]
 
@@ -214,13 +221,16 @@
 (defn minmax-norm
 
   "Min-max normalization, linearly scales `x` to fit between 0 and 1 inclusive.
+
+   See [[scale]] Arity 3, which is the opposite operation.
   
+   ```clojure
+   (min-max-norm 20
+                 10
+                 25)
 
-   Eg. (min-max-norm 20
-                     10
-                     25)
-
-       => 0.5"
+   0.5
+   ```"
 
   [min-v interval v]
 
@@ -236,7 +246,9 @@
 
 (def ctx
 
-  "Empty context, waiting to be used for future endaveours."
+  "Empty context, waiting to be used for future endaveours.
+  
+   It provides an empty [[rmap]] for scheduling events."
 
   {::events -rmap-empty})
 
@@ -245,7 +257,9 @@
 
 (defn e-path
 
-  ;;
+  "Without arguments, returns the path to the working queue as a sequence.
+  
+   Otherwise, returns a path for the event tree."
 
   ([]
 
@@ -264,7 +278,9 @@
 
 (defn f-path
 
-  ;;
+  "Returns a new path locating the given one in the flow tree, as a sequence.
+  
+   If `path` is not provided, get one by calling [[path]], "
 
   ([]
 
@@ -281,7 +297,9 @@
 
 (defn empty-event?
 
-  ""
+  "Is `event` empty?
+  
+   True if it is nil or a (possibly nested) empty queue."
 
   [event]
 
@@ -312,7 +330,7 @@
 
 (defn next-ptime
 
-  ""
+  "On what ptime is scheduled the next event, if there is one?"
 
   [ctx]
 
@@ -323,7 +341,7 @@
 
 (defn path
 
-  ""
+  "Returns the path associated at [::e-flat ::path]."
 
   [ctx]
 
@@ -334,7 +352,8 @@
 
 (defn ptime
 
-  ""
+  "Returns either the ptime at [::e-flat ::ptime] (notably useful for [[f-finite]] or [[f-sampled]]
+   or, if there is none, at [::ptime]."
 
   [ctx]
 
@@ -346,7 +365,7 @@
 
 (defn reached?
 
-  ""
+  "Uses [[ptime]] to tell if a certain ptime has been reached."
 
   [ctx ptime-target]
 
@@ -358,7 +377,7 @@
 
 (defn scheduled?
 
-  ""
+  "Is there anything scheduled at all or for a given timevec?"
 
   ([ctx]
 
@@ -377,7 +396,7 @@
 
 (defn timevec
 
-  ""
+  "Returns the timevec at [::e-flat ::timevec]."
 
   [ctx]
 
@@ -405,7 +424,7 @@
 
 (defn- -not-empty-event
 
-  ;;
+  ;; Safe guard, throws if an event is empty.
 
   [event]
 
@@ -419,7 +438,22 @@
 
 (defn e-assoc
 
-  ""
+  "Schedule an `event`.
+  
+
+   Arity 2: Replaces the current working queue.
+  
+   Arity 3: Schedules the `event` in the event tree for the given `timevec` and path returned by [[path]].
+  
+   Arity 4: Full control of when and where in the event tree.
+  
+
+   Such arities are common when it comes to `e-XXX` functions, where providing providing both a `timevec`
+   and a `path` refers explicitly to the event tree. Providing only the `timevec` also, but the `path` is
+   retrieved in ::e-flat. Providing neither explicitely refers to the current working queue, hence will not work
+   as intended when a queue is not being executed.
+
+   All `e-XXX` functions accepting some `event` as argument will throw if that `event` is empty (see [[empty-event?]])"
 
   ([ctx event]
 
@@ -457,7 +491,9 @@
 
 (defn e-conj
 
-  ""
+  "Enqueues an `event`.
+
+   Arities follow the same convention as [[e-assoc]]."
 
   ;; Clojure's `conj` can take several values, but this is messing with our arities.
 
@@ -499,7 +535,11 @@
 
 (defn e-dissoc
   
-  ""
+  "Cancel a scheduled event.
+  
+   Arity 1: Removes the current working queue.
+  
+   Arity 3: Remove the event located at `timevec` and `path` in the event tree."
 
   ([ctx]
 
@@ -520,7 +560,9 @@
 
 (defn e-into
 
-  ""
+  "Like [[e-conj]], but for a collection of `events`.
+  
+   Metadata of the given collection is merged with the already existing queue if there is one."
   
   ([ctx events]
    
@@ -569,7 +611,11 @@
 
 (defn e-get
 
-  ""
+  "Retrieves a scheduled event.
+  
+   Arity 1: Returns the current working queue.
+
+   Arity 3: Returns the event located at `timevec` and `path` in the event tree."
 
   ([ctx]
 
@@ -590,7 +636,10 @@
 
 (defn e-isolate
 
-  ""
+  "Isolating means that the current working queue or the requested queue in the event tree
+   will be nested in an outer queue.
+  
+   Arities follow similar convention as [[e-assoc]]."
 
   ([ctx]
 
@@ -622,7 +671,9 @@
 
 (defn e-pop
 
-  ""
+  "Pops the first element in an event queue.
+  
+   Arities follow similar convention as [[e-assoc]]."
 
   ([ctx]
 
@@ -662,7 +713,8 @@
 
 (defn e-push
 
-  ""
+  "Similar to [[e-into]] but works the other way around. Already scheduled events are added to the given
+   queue `q` and their metadata data is merged."
 
   ([ctx q]
 
@@ -707,7 +759,11 @@
 
 (defn e-update
 
-  ""
+  "Seldom used by the user, often used by other `e-XXX` functions.
+  
+   Works like standard `update` but tailored for the current working queue and the event tree.
+  
+   Arities follow similar convention as [[e-assoc]]."
 
   ([ctx f]
 
@@ -719,6 +775,14 @@
                   (throw (ex-info "No working queue at the moment"
                                   {::ctx ctx})))
                 (f wq))))
+
+
+  ([ctx timevec f]
+
+   (e-update ctx
+             timevec
+             (path ctx)
+             f))
 
 
   ([ctx timevec path f]
@@ -737,7 +801,17 @@
 
 (defn timevec+
 
-  ""
+  "Adds all dimension in `dtimevec` to `timevec`
+  
+   The first dimension in `dtimevec` denoting a ptime cannot be negative as one cannot travel
+   back in time.
+  
+   ```clojure
+   (timevec+ [0 5]
+             [10 10 10])
+
+   [10 15 10]
+   ```"
 
   [timevec dtimevec]
 
@@ -769,7 +843,9 @@
 
 (defn wq-timevec+
 
-  ""
+  "Like [[timevec+]] but fetches the timevec from the `ctx`.
+  
+   Not providing the `ctx` returns a function ctx -> timevec."
 
   ([dtimevec]
 
@@ -791,7 +867,7 @@
 
 (defn- -fn-restore-q-outer
 
-  ""
+  ;; Used after an inner queue ends executing in order to restore the rest of the outer queue.
 
   [q-outer]
 
@@ -806,7 +882,7 @@
 
 (defn- -q-exec
 
-  ;;
+  ;; Executes the given `q`.
 
   ([e-handler ctx q]
 
@@ -877,9 +953,9 @@
 
 (defn- -fn-u-exec
 
-  ;;
+  ;; Returns a function [e-handler ctx] knowing how to execute event unit `u`.
 
-  [path op]
+  [path u]
   
   (fn u-exec [e-handler ctx]
     (let [ctx-2 (e-handler (update ctx
@@ -887,7 +963,7 @@
                                    merge
                                    {::path  path
                                     ::queue (queue)})
-                           op)
+                           u)
           wq    (e-get ctx)]
       (if (empty? wq)
         ctx-2
@@ -900,7 +976,7 @@
 
 (defn- -fn-q-exec
 
-  ;;
+  ;; Returns a function [e-handler ctx] knowing of to execute event queue `q`.
 
   [path q]
 
@@ -917,6 +993,9 @@
 
 (defn- -e-fetch
 
+  ;; Pops first event found in `node`
+  ;; Returns [popped-state leaf-handler] where `leaf-handler` is a function [e-handler ctx] -> ctx.
+  ;;
   ;; TODO. Micro-optimize knowing we have a map in the first pass?
 
   ([node]
@@ -954,7 +1033,7 @@
 
 (defn- -e-exec
 
-  ;;
+  ;; Executes the first event found in `e-tree`.
 
   [e-handler ctx timevec e-tree]
 
@@ -978,7 +1057,8 @@
 
 (defn- -validate-ctx-ptime
 
-  ;;
+  ;; Throws if ptime of events is <= ptime in ctx.
+  ;; Used for initiating a jump.
 
   [ctx e-ptime]
 
@@ -994,7 +1074,8 @@
 
 (defn- -throw-ptime-current
 
-  ;;
+  ;; Throws if the ptime of events if < ptime in ctx.
+  ;; Used in between executing timevecs.
 
   [e-ptime ptime]
 
@@ -1007,7 +1088,7 @@
 
 (defn- -e-next
 
-  ;;
+  ;; Returns the next event subtree for the next timevec.
 
   [ctx]
 
@@ -1018,7 +1099,7 @@
 
 (defn- -fn-before-ptime
 
-  ;;
+  ;; Returns a function that will be called before each ptime when executing events.
 
   [options]
 
@@ -1035,6 +1116,8 @@
 
 (defn- -fn-after-ptime
 
+  ;; Returns a function that will be called after each ptime when executing events.
+  ;;
   ;; MAYBEDO. Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
   ;;          Would it be really useful to share some state between all events on a per ptime basis?
 
@@ -1051,7 +1134,8 @@
 
 (defn- -after-eager-jump
 
-  ;;
+  ;; Finalize a ctx for after a jump (when any of the `jump-XXX` functions returns or for each computed
+  ;; ctx in a `history`.
 
   [ctx after-ptime]
 
@@ -1064,7 +1148,12 @@
 
 (defn- -remove-e-handler
 
+  ;; The event handler provided by the user (typically the result of [[op-applier]], if any, needs
+  ;; to figure in the ctx metadata. Everytime a ctx is returned to the user after some jump, it must
+  ;; be removed.
   ;;
+  ;; The main purpose of event handler is for the ctx to be serializable. Hence, keeping the event handler
+  ;; in the metadata defeats that purpose.
 
   [ctx]
 
@@ -1078,7 +1167,7 @@
 
 (defn- -e-handler-f
 
-  ;;
+  ;; Default event handler. Presumes that the event unit is a function.
 
   [ctx f]
 
@@ -1089,6 +1178,8 @@
 
 (defn- -jump-until
 
+  ;; Cf. [[jump-until]]
+  ;;
   ;; A bit fugly, but straightforward, or is it...
 
   [ctx ptime e-timevec e-tree pred e-handler before-ptime after-ptime]
@@ -1133,7 +1224,32 @@
 
 (defn jump-until
 
-  ""
+  "Moves the `ctx` through time, jumping from ptime to ptime following events.
+  
+   Before each ptime, `pred` is called. If it returns nil, all events for the next ptime are executed.
+   If it returns anything, jumping stops and that result is returned to the user.
+
+   For instance, here is how `pred` is implemented for [[jump-to]] which jumps until `ptime-target`.
+   When it needs to stop, it returns the `ctx` as it is at that moment:
+
+   ```clojure
+   (fn pred [ctx _last-ptime next-ptime]
+     (when (> next-ptime
+              ptime-target)
+       ctx) 
+   ```
+
+   In more involved cases, this design allow `pred` to modify `ctx`, for instance to mark why it jumping
+   stopped.
+  
+
+   Options are a nilable map such as:
+  
+   | Key | Meaning | Optional? |
+   |:---:|---|:---:|
+   | :dvlopt.dsim/after-ptime  | Function ctx -> ctx called after each distinct ptime.  | Yes |
+   | :dvlopt.dsim/before-ptime | Function ctx -> ctx called before each distinct ptime. | Yes |
+   | :dvlopt.dsim/e-handler | Event handler when unit events are data instead o functions See [[op-applier]]. | Yes |"
 
   ([ctx pred]
 
@@ -1178,7 +1294,9 @@
 
 (defn jump
 
-  ""
+  "Jumps to the next ptime.
+  
+   Implemented using [[jump-until]]."
 
   ([ctx]
 
@@ -1199,7 +1317,10 @@
 
 (defn jump-to
 
-  ""
+  "Jumps by executing all events until `ptime`. Stops earlier if there are no event scheduled exactly at
+   `ptime`.
+
+   Implemented using [[jump-until]]."
 
   ([ctx ptime]
 
@@ -1222,9 +1343,9 @@
 
 (defn jump-to-end
 
-  ""
+  "Jumps until there are no more events, meaning the context is stable and cannot evolve by itself anymore.
 
-  ;; TODO. void
+   Implemented using [[jump-until]]."
 
   ([ctx]
 
@@ -1244,7 +1365,7 @@
 
 (defn- -history
 
-  ;;
+  ;; Cf. [[history]]
 
   [ctx ptime e-timevec e-tree e-handler before-ptime after-ptime]
 
@@ -1286,7 +1407,13 @@
 
 (defn history
 
-  ""
+  "Returns a lazy sequence representing the full history of the given context.
+  
+   Each element represents a unique ptime.
+  
+   Lazy version of [[jump-to-end]].
+  
+   Options are as described in [[jump-until]]."
 
   ([ctx]
 
@@ -1336,7 +1463,7 @@
 
 (defn wq-breaker
 
-  ""
+  "Removes the working queue if `pred?`, called with the current `ctx`, returns true."
 
   ([pred?]
 
@@ -1357,8 +1484,41 @@
 
 (defn wq-capture
 
-  ""
+  "Captures and saves the rest of the working queue. Next call to [[wq-replay]] or [[wq-sreplay]]
+   will replay or clean that captured queue.
+  
+   This is extremely useful for repeating queues or portion of queues. Without this abilty to capture
+   the current state of a queue, it would be tricky to model activities or successions of flows that need
+   some repetition.
 
+   When called more than once, repetitions are nested. For instance:
+
+   ```clojure
+   (queue wq-capture
+          event-a
+          wq-capture
+          event-b
+          (wq-delay (wq-timevec+ [100]))
+          (wq-sreplay wq-pred-repeat
+                      1)
+          event-c
+          (wq-replay wq-pred-repeat
+                     1))
+
+   ;; Equivalent to:
+
+   (queue event-a
+          event-b
+          ;; delay of 100 time units
+          event-b
+          event-c
+          event-a
+          event-b
+          ;; delay of 100 time units
+          event-b
+          event-c)
+   ```"
+  
   ([]
 
    wq-capture)
@@ -1387,7 +1547,20 @@
 
 (defn wq-conj
 
-  ""
+  "Schedules the given `event` at the same path as the current flat event but with the computed timevec.
+
+   Less commonly used directly by the user, often used by other `wq-XXX` functions.
+
+   Unless something more sophisticated is needed, `ctx->timevec` will often be the result of `wq-timevec+`.
+   For instance, scheduling for 500 time units from now:
+
+   ```clojure
+   (wq-conj ctx
+            (wq-timevec+ [500])
+            event)
+   ```
+   
+   Throws if the `event` is empty (see [[empty-event?]])."
 
   ([ctx->timevec event]
 
@@ -1399,19 +1572,18 @@
 
   ([ctx ctx->timevec event]
 
-   (if (and (queue? event)
-            (empty? event))
-     ctx
-     (e-conj ctx
-             (ctx->timevec ctx)
-             event))))
+   (e-conj ctx
+           (ctx->timevec ctx)
+           event)))
 
 
 
 
 (defn wq-copy
 
-  ""
+  "Uses [[wq-conj]] to copy the current working queue to a future timevec in the event tree.
+  
+   Because this is Clojure, the queue is not actually copied as it is immutable."
 
   ([ctx->timevec]
 
@@ -1431,7 +1603,9 @@
 
 (defn wq-delay
 
-  ""
+  "Moves the rest of the working queue to a future timevec in the event tree.
+  
+   See also [[wq-conj]]."
 
   ([ctx->timevec]
 
@@ -1450,7 +1624,8 @@
 
 (defn wq-do!
 
-  ""
+  "Calls `side-effect` with the `ctx` to do some side effect. Ignores the result and simply
+   returns the unmodified `ctx`."
 
   ([side-effect]
 
@@ -1469,7 +1644,9 @@
 
 (defn wq-exec
 
-  ""
+  "Executes the given event queue `q` in isolation from the rest of the working queue.
+  
+   See also [[e-isolate]]."
 
   ([q]
 
@@ -1492,7 +1669,9 @@
 
 (defn wq-meta
 
-  ""
+  "Returns the metadata of the working queue.
+  
+   See also [[wq-vary-meta]]."
 
   [ctx]
 
@@ -1503,32 +1682,39 @@
 
 (defn wq-mirror
 
-  ""
+  "Many events are typically interested in two things: the path they work on and the current ptime.
+  
+   Turns `f` into a regular event which accepts a `ctx`. Underneath, calls (f ctx data-at-path current-ptime).
+   The result is automatically associated in the `ctx` at the same path."
 
-  ;; TODO. Better name than event.
-
-  ([event]
+  ([f]
 
    (fn event-2 [ctx]
      (wq-mirror ctx
-                event)))
+                f)))
 
 
-  ([ctx event]
+  ([ctx f]
 
    (let [path' (path ctx)]
      (assoc-in ctx
                path'
-               (event (get-in ctx
-                              path')
-                      (ptime ctx))))))
+               (f (get-in ctx
+                          path')
+                  (ptime ctx))))))
 
 
 
 
 (defn wq-pred-repeat
 
-  ""
+  "Example of a predicate meant to be used with [[wq-sreplay]].
+  
+   The seed provided to [[wq-sreplay]], corresponding here to `n`, is the number of time a captured queue
+   will be repeated. For instance, 2 means 3 occurences: the captured queue is first executed, then repeated
+   twice.
+  
+   See [[wq-capture]] for an example."
 
   [_ctx n]
 
@@ -1540,7 +1726,7 @@
 
 (defn- -replay-captured
 
-  ;;
+  ;; Restore the queue that needs to be replayed.
 
   [ctx]
 
@@ -1557,7 +1743,7 @@
 
 (defn- -pop-stack
 
-  ;;
+  ;; Given a stack in a map, pops and element and dissociates the stack if it is now empty.
 
   [hmap k]
 
@@ -1574,7 +1760,10 @@
 
 (defn wq-replay
 
-  ""
+  "When `pred?` returns true after being called with the current `ctx`, replays the last queue captured using
+   [[wq-capture]].
+  
+   When it returns a falsy value, that last captured queue is removed."
 
   ([pred?]
 
@@ -1597,7 +1786,10 @@
 
 (defn wq-sreplay
 
-  ""
+  "Similar to [[wq-replay]] but `pred` is stateful. It is called with the `ctx` and (initially) the `seed`.
+   Returning anything but nil is considered as truthy and is stored as state replacing `seed` in the next call.
+
+   See [[wq-captured]] for an example with [[wq-pred-repeat]]."
 
   ([pred seed]
 
@@ -1632,7 +1824,11 @@
 
 (defn wq-vary-meta
 
-  ""
+  "Uses Clojure's `vary-meta` on the working queue.
+  
+   When that queue is copied or moved into the future (eg. by calling [[wq-delay]]), it is a convenient way of storing
+   some state at the level of a queue which can later be retrieved using [[wq-meta]]. When a queue is garbage collected,
+   so is its metadata."
 
   ([f]
 
@@ -1657,7 +1853,21 @@
 
 (defn op-applier
 
-  ""
+  "Prepares a function that can be used as ::e-handler (see [[jump-until]]).
+  
+   The purpose is to represent unit events as data instead of functions so that a context is fully
+   serializable when needed.
+
+   A data representation of an event, called an `operation`, has the following format:
+
+   ```clojure
+   [:some-keyword & args]
+   ```
+
+   `k->f` is a map keyword -> event function. The resulting event handler will use it to find the appropriate
+   event function and apply to it arguments from the `operation`.
+
+   See [[op-std]] for a map of event function automatically injected."
 
   [k->f]
 
@@ -1684,7 +1894,10 @@
 
 (defn op-exec
 
-  ""
+  "During a jump (see [[jump-until]] or [[history]]), can be called within an event in order the execute
+   the given `op`.
+  
+   See also [[op-applier]]."
 
   [ctx op]
 
@@ -1699,7 +1912,44 @@
 
 (def op-std
 
-  ""
+  "Map of keyword -> event function automatically injected when calling [[op-applier]].
+
+   It contains the following useful `wq-XXX` functions:
+
+   ```clojure
+   :dvlopt.dsim/breaker
+   :dvlopt.dsim/capture
+   :dvlopt.dsim/delay
+   :dvlopt.dsim/do!
+   :dvlopt.dsim/exec
+   :dvlopt.dsim/mirror
+   :dvlopt.dsim/pred-repeat
+   :dvlopt.dsim/replay
+   :dvlopt.dsim/sreplay
+   :dvlopt.dsim/timevec+
+   ```
+
+   There are meant to mimick normal function calls. For instance:
+
+   ```clojure
+   ;; Assuming ::event-a and ::event-b have been provided to `op-applier`:
+
+   (queue [:dvlopt.dsim/capture]
+          [::event-a
+          [:dvlopt.dsim/delay [:dvlopt.dsim/timevec+ [100]]]
+          [::event-b 42 :some-arg]
+          [:dvlopt.dsim/sreplay [:dvlopt.dsim/pred-repeat]
+                                2])
+
+   ;; Is the data equivalent of (assuming `event-b` encapsulates args in a closure):
+
+   (queue wq-capture
+          event-a
+          (wq-delay (wq-timevec+ [100]))
+          event-b
+          (wq-sreplay wq-pred-repeat
+                      2))
+   ```"
 
   {::breaker     (fn event [ctx op-pred?]
                    (wq-breaker ctx
@@ -1747,7 +1997,9 @@
 
 (def rank-flows
 
-  ""
+  "This rank is automatically inserted when a sample is scheduled.
+  
+   See also [[f-sample]]."
 
   (long 1e9))
 
@@ -1756,7 +2008,13 @@
 
 (defn f-end
 
-  ""
+  "Is mainly used to end an an infinite flow (see [[f-infinite]]).
+
+   Can also be used inside a finite flow is it needs to end sooner than expected (see [[f-finite]] and [[f-sampled]]).
+  
+   Resumes the execution of the rest of the queue when the flow was created.
+  
+   See [[f-infinite]] for an example."
 
   [ctx]
 
@@ -1781,6 +2039,8 @@
 
 (defn- -f-sample*
 
+  ;; Cf. [[f-sample*]]
+  ;;
   ;; TODO. void
 
   [ctx ptime path node]
@@ -1806,7 +2066,9 @@
 
 (defn f-sample*
 
-  ""
+  "Kept public for extreme use cases. For the vast majority, uses should use rely on [[f-sample]].
+  
+   Directly samples all flows or a subtree at the given `path`."
 
   ([ctx]
 
@@ -1828,9 +2090,17 @@
 
 (defn f-sample
 
-  ""
+  "Schedules a sample, now or at the given `timevec`, at the `path` of the current flat event or the given one.
+  
+   The way it is scheduled garantees deduplication and that is why it should be used instead of [[f-sample*]].
+   Without deduplication, flows might be sampled more than once for a given timevec which not only is inefficient,
+   it corrupts data if some flows are not idempotent.
 
-  ;; TODO. User provided ranking.
+   Otherwise, a common scenario leading to duplication would be, for instance, animation. All flows are sampled at
+   each frame in order to draw them accurately. This is done by providing an empty path with leads to the whole flow
+   tree. However, when a flow is created, it needs to be initialized (ie. sampled a first time). this is done by
+   providing a path to that flow, which is of course part of the flow tree. If by chance that flow is created at
+   the same timevec as a frame, it would then be sampled twice."
 
   ([]
 
@@ -1867,7 +2137,7 @@
 
 (defn- -f-assoc
 
-  ;;
+  ;; Associates a new flow and everything it needs for resuming the queue when it ends.
 
   ([ctx flow]
 
@@ -1891,7 +2161,36 @@
 
 (defn f-infinite 
 
-  ""
+  "A flow is akin to an event. While events happens at one particular timevec and have no concept of duration,
+   flows last for an interval of time. They are sampled when needed, decided by the user, by using [[f-sample]].
+
+   An \"infinite\" flow is either endless or ends at a moment that is not known in advance (eg. when the context
+   satifies some condition. It can be ended by using `f-end`.
+
+   Here is a simple example of an infinite flow that increments a value and schedules samples itself. In other
+   words, that value will be incremented every 500 time units until it is randomly decided to stop:
+
+   ```clojure
+   (dsim/queue (f-infinite (fn flow [ctx]
+                             (let [ctx-2 (update-in ctx
+                                                    (path ctx)
+                                                    inc)]
+                               (if (< (rand)
+                                      0.1)
+                                 (f-end ctx-2)
+                                 (f-sample ctx-2
+                                           (wq-timevec+ ctx-2
+                                                        [500]))))))
+               (wq-delay (wq-timevec+ [150]))
+               event-a
+               event-b)
+   ```
+   
+   Note that when a flow is created, it saves the rest of the working queue and momentarily stops execution.
+   When it ends, it resumes that queue in order to continue. This designs allows for simply building complex
+   sequences of flows and events, including delays if needed (see [[wq-delay]]) and repetitions (see [[capture]]).i
+  
+   When created, a flow is automatically sampled at the same ptime for initialization."
 
   ([flow]
 
@@ -1911,6 +2210,8 @@
 
 (defn- -f-finite
 
+  ;; Cf. [[f-finite]]
+  ;;
   ;; Todo. void, assoc-some
 
   [ctx after-sample duration flow]
@@ -1947,7 +2248,13 @@
 
 (defn f-finite
 
-  ""
+  "Similar to [[f-infinite]]. However, the flow is meant to last as long as the given `duration`.
+
+   Knowing the `duration` means [[f-end]] will be called automatically after that interval of time. Also,
+   before each sample, the ptime is linearly normalized to a value between 0 and 1 inclusive. In simpler terms,
+   the value at [::e-flat ::ptime] (returned by [[ptime]]) is a percentage of completion.
+
+   Samples are automatically scheduled at creation for initialization and at the end for clean-up."
 
   ([duration flow]
 
@@ -1969,7 +2276,11 @@
 
 (defn f-sampled
 
-  ""
+  "Just like [[f-finite]] but eases the process of repeatedly sampling the flow.
+  
+   After each sample, starting at initialization, schedules another one using `ctx->timevec` (see the commonly
+   used [[wq-timevec+]]), maxing out the ptime at the ptime of completion so that the forseen interval will
+   not be exceeded."
 
   ([ctx->timevec duration flow]
 

@@ -1019,7 +1019,7 @@
                                                                            path)
                                                                    n)
                                                               (dsim/f-sample ctx-2
-                                                                             (dsim/wq-timevec+ ctx
+                                                                             (dsim/wq-timevec+ ctx-2
                                                                                                [1]))
                                                               (dsim/f-end ctx-2)))))))
         end (last h)]

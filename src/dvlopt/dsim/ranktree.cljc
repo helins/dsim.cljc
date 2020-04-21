@@ -1,6 +1,47 @@
 (ns dvlopt.dsim.ranktree
 
-  ""
+  "A ranktree is composed of arbitrary subtrees (regualar nested maps) that are prioritized by arbitrarily nested sorted maps.
+  
+   In other words, each leaf is identified first by a vector of ranks (keys of the sorted maps) and then by a path in the
+   unsorted maps. Yet in other words, those are sorted trees which have unsorted trees as leaves.
+  
+   For instance:
+
+   ```clojure
+   (def tree-2
+        (sorted-map 0 (sorted-map 1 {:a {:b 42}})
+                    5 {:c {:d {:e 24}}}))
+
+   (= 42
+      (ranktree/get tree
+                    [0 1]
+                    [:a :b]))
+   ```
+
+   It must start with at least one sorted map.
+
+   The magic is that is it perfectly normal to mix rank vectors of various length. The functions in this namespace automatically
+   treat missing ranks as 0 and know how to be smart about it. A lower rank means a higher priority.
+
+   ```Clojure
+   (ranktree/assoc tree-2
+                   [0 1 0 0 0 5]
+                   [:possible?]
+                   true)
+
+   (= 42
+      ;; 
+      (ranktree/get tree-2
+                    [0 1 0 0 0 0]
+                    [:a :b])
+      ;;
+      (ranktree/get tree-2
+                    [0 1]
+                    [:a :b]))
+
+                
+   ```
+  "
 
   {:author "Adam Helinski"}
 
@@ -107,28 +148,38 @@
 
   ;;
 
-  ([ranks path v node]
+  [[r & rs] path v]
 
-   (-assoc-leaf (tree)
-                ranks
-                path
-                v
-                node))
+  (sorted-map r (if rs
+                  (-assoc-leaf rs
+                               path
+                               v)
+                  (-assoc-in path
+                             v))))
 
 
-  ([tree [r & rs] path v node]
 
-   (clj/update tree
-               r
-               (fn at-rank [_]
-                 (if rs
-                   (-assoc-leaf rs
-                                path
-                                v
-                                node)
-                   (-assoc-in node
-                              path
-                              v))))))
+
+(defn- -bubbling-assoc-leaf
+
+  ;;
+
+  [[r & rs] path v bubbling-node]
+
+  (if (empty? rs)
+    (if (= r
+           0)
+      (-assoc-in bubbling-node
+                 path
+                 v)
+      (sorted-map 0 bubbling-node
+                  r
+                  (-assoc-in path
+                             v)))
+    (sorted-map r (-bubbling-assoc-leaf rs
+                                        path
+                                        v
+                                        bubbling-node))))
 
 
 
@@ -146,8 +197,7 @@
                   (nil? node)    (if rs
                                    (-assoc-leaf rs
                                                 path
-                                                v
-                                                nil)
+                                                v)
                                    (-assoc-in path
                                               v))
                   (sorted? node) (if rs
@@ -163,20 +213,19 @@
                                    (if-some [rs-2 (next rs)]
                                      (if (= r-2
                                             0)
-                                       (-assoc-leaf rs
-                                                    path
-                                                    v
-                                                    node)
+                                       (-bubbling-assoc-leaf rs
+                                                             path
+                                                             v
+                                                             node)
                                        (sorted-map 0   node
                                                    r-2 (-assoc-leaf rs-2
                                                                     path
-                                                                    v
-                                                                    nil)))
+                                                                    v)))
                                      (if (= r-2
                                             0)
-                                       (sorted-map 0 (assoc-in node
-                                                               path
-                                                               v))
+                                       (sorted-map 0 (-assoc-in node
+                                                                path
+                                                                v))
                                        (sorted-map 0   node
                                                    r-2 (-assoc-in path
                                                                   v))))
@@ -443,8 +492,7 @@
                      (if rs
                        (-assoc-leaf rs
                                     path
-                                    v
-                                    nil)
+                                    v)
                        (-assoc-in path
                                   v)))))))
 

@@ -50,17 +50,17 @@
 
 (t/deftest assoc
 
-  (t/is (= (sorted-map 1 (sorted-map 2 42))
-           (dsim.ranktree/assoc (sorted-map)
-                                [1 2]
-                                42))
-        "Adding ranks")
-
   (t/is (= (sorted-map 1 :after)
            (dsim.ranktree/assoc (sorted-map 1 :before)
                                 [1]
                                 :after))
         "At an existing rank")
+
+  (t/is (= (sorted-map 1 (sorted-map 2 42))
+           (dsim.ranktree/assoc (sorted-map)
+                                [1 2]
+                                42))
+        "Adding ranks")
 
   (t/is (= (sorted-map 1 (sorted-map 2 (sorted-map 0 24
                                                    3 42)))

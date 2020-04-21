@@ -258,13 +258,13 @@
 
 
   (t/is (= (dsim/queue event)
-           (dsim/e-get (dsim/e-assoc dsim/ctx
-                                        event)))
+           (dsim/e-get (dsim/e-assoc {}
+                                     event)))
         "In the working queue")
 
 
   (t/is (= event
-           (dsim/e-get (dsim/e-assoc dsim/ctx
+           (dsim/e-get (dsim/e-assoc {}
                                      timevec
                                      path
                                      event)
@@ -283,14 +283,14 @@
 
 
     (t/is (= q
-             (dsim/e-get (-> dsim/ctx
+             (dsim/e-get (-> {}
                              (dsim/e-assoc event)
                              (dsim/e-conj event))))
           "In the working queue")
 
 
     (t/is (= q
-             (dsim/e-get (-> dsim/ctx
+             (dsim/e-get (-> {}
                              (dsim/e-assoc timevec
                                            path
                                            event)
@@ -303,7 +303,7 @@
 
 
     (t/is (= q
-             (dsim/e-get (-> dsim/ctx
+             (dsim/e-get (-> {}
                              (dsim/e-assoc timevec
                                            path
                                            (dsim/queue event))
@@ -316,7 +316,7 @@
 
 
   (t/is (= (dsim/queue event)
-           (dsim/e-get (dsim/e-conj dsim/ctx
+           (dsim/e-get (dsim/e-conj {}
                                     timevec
                                     path
                                     event)
@@ -331,20 +331,21 @@
 
 
   (let [mta-1    {:a 42}
-        q        (with-meta (dsim/queue)
+        q        (with-meta (dsim/queue event)
                             mta-1)
         mta-2    {:b 42}
         events   (with-meta [event
                              event]
                             mta-2)
         q-target (with-meta (dsim/queue event
+                                        event
                                         event)
                             (merge mta-1
                                    mta-2))]
 
 
     (t/is (full= q-target
-                 (dsim/e-get (-> dsim/ctx
+                 (dsim/e-get (-> {}
                                  (dsim/e-assoc q)
                                  (dsim/e-into events))))
           "In the working queue")
@@ -353,7 +354,7 @@
     (t/is (full= (with-meta (into (dsim/queue)
                                   events)
                             mta-2)
-                 (dsim/e-get (dsim/e-into dsim/ctx
+                 (dsim/e-get (dsim/e-into {}
                                           timevec
                                           path
                                           events)
@@ -366,7 +367,7 @@
                                         event
                                         event)
                             mta-2)
-                 (dsim/e-get (-> dsim/ctx
+                 (dsim/e-get (-> {}
                                  (dsim/e-assoc timevec
                                                path
                                                event)
@@ -379,10 +380,10 @@
 
 
     (t/is (full= q-target
-                 (dsim/e-get (-> dsim/ctx
-                                 (assoc-in (dsim/e-path timevec
-                                                        path)
-                                           q)
+                 (dsim/e-get (-> {}
+                                 (dsim/e-assoc timevec
+                                               path
+                                               q)
                                  (dsim/e-into timevec
                                               path
                                               events))
@@ -400,12 +401,12 @@
         q-2 (dsim/queue q-1)]
 
     (t/is (= q-2
-             (dsim/e-get (dsim/e-isolate (dsim/e-assoc dsim/ctx
+             (dsim/e-get (dsim/e-isolate (dsim/e-assoc {}
                                                        q-1))))
           "In the working queue")
 
     (t/is (= q-2
-             (dsim/e-get (dsim/e-isolate (dsim/e-assoc dsim/ctx
+             (dsim/e-get (dsim/e-isolate (dsim/e-assoc {}
                                                        timevec
                                                        path
                                                        q-1)
@@ -418,53 +419,32 @@
 
 
 
-(t/deftest e-pop
-
-
-  (let [q (dsim/queue event)]
-
-    (t/is (empty? (dsim/e-get (dsim/e-pop (dsim/e-assoc dsim/ctx
-                                                        q))))
-          "In the working queue")
-
-    (t/is (empty? (dsim/e-get (dsim/e-pop (dsim/e-assoc dsim/ctx
-                                                        timevec
-                                                        path
-                                                        q)
-                                          timevec
-                                          path)
-                              timevec
-                              path))
-          "In the event tree")))
-
-
-
-
 (t/deftest e-push
 
 
   (let [mta-1    {:a 42}
-        q        (with-meta (dsim/queue)
+        q        (with-meta (dsim/queue event)
                             mta-1)
         mta-2    {:b 42}
         events   (with-meta (dsim/queue event
                                         event)
                             mta-2)
         q-target (with-meta (dsim/queue event
+                                        event
                                         event)
                             (merge mta-2
                                    mta-1))]
 
 
     (t/is (full= q-target
-                 (dsim/e-get (-> dsim/ctx
+                 (dsim/e-get (-> {}
                                  (dsim/e-assoc q)
                                  (dsim/e-push events))))
           "In the working queue")
 
 
     (t/is (full= events
-                 (dsim/e-get (dsim/e-into dsim/ctx
+                 (dsim/e-get (dsim/e-into {}
                                           timevec
                                           path
                                           events)
@@ -475,7 +455,7 @@
 
     (t/is (full= (conj events
                        event)
-                 (dsim/e-get (-> dsim/ctx
+                 (dsim/e-get (-> {}
                                  (dsim/e-assoc timevec
                                                path
                                                event)
@@ -488,10 +468,10 @@
 
 
     (t/is (full= q-target
-                 (dsim/e-get (-> dsim/ctx
-                                 (assoc-in (dsim/e-path timevec
-                                                        path)
-                                           q)
+                 (dsim/e-get (-> {}
+                                 (dsim/e-assoc timevec
+                                               path
+                                               q)
                                  (dsim/e-into timevec
                                               path
                                               events))
@@ -538,11 +518,10 @@
 
   [n]
 
-  (merge dsim/ctx
-         {:after  n
-          :before n
-          :n      n
-          :writer []}))
+  {:after  n
+   :before n
+   :n      n
+   :writer []})
 
 
 
@@ -639,7 +618,7 @@
              (dsim/jump ctx
                         jump-options)
              end)
-          "Jumping to the end is like jumpting to the next ptime when there is only one")
+          "Jumping to the end is like jumping to the next ptime when there is only one")
 
     (t/is (not (dsim/scheduled? end))
           "Context should be stable at the end"))
@@ -773,8 +752,8 @@
                                      event-inc)
                 (assoc :m
                        0))
-        h  (dsim/history ctx
-                         jump-options)]
+        h   (dsim/history ctx
+                          jump-options)]
 
     (t/is (= n
              (count h))
@@ -1072,9 +1051,7 @@
     (test-stability end))
 
 
-  (let [h (dsim/history (dsim/e-conj (assoc (init-ctx 0)
-                                            :writer
-                                            [])
+  (let [h (dsim/history (dsim/e-conj (init-ctx 0)
                                      [0]
                                      [:writer]
                                      (dsim/queue dsim/wq-capture

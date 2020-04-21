@@ -6,13 +6,13 @@
 
   {:author "Adam Helinski"}
 
-  (:require [dvlopt.dsim.util :as dsim.util]
-            [dvlopt.void      :as void])
+  (:require [dvlopt.dsim.ranktree :as dsim.ranktree]
+            [dvlopt.dsim.util     :as dsim.util]
+            [dvlopt.void          :as void])
   #?(:clj (:import (clojure.lang ExceptionInfo
                                  PersistentQueue))))
 
 
-;; TODO. wq-vary-meta & args
 
 
 ;;;;;;;;;; API structure (searchable for easy navigation)
@@ -61,39 +61,6 @@
 
 
 ;;;;;;;;;; @[datastruct]  Data structures
-
-
-(def ^:private -rmap-empty
-
-  ;; A bit weird, but using timevecs as keys will not work if the sorted map is not
-  ;; initialized with at one (something to do with the comparator being used).
-
-  (dissoc (sorted-map [0 0] nil)
-          [0 0]))
-
-
-
-
-(defn rmap
-
-  "Creates a ranked map."
-
-  ([]
-
-   -rmap-empty)
-
-
-  ([& kvs]
-
-   (reduce (fn add [rmap [rvec v]]
-             (assoc rmap
-                    rvec
-                    v))
-           -rmap-empty
-           (partition 2
-                      kvs))))
-
-
 
 
 (defn queue
@@ -244,52 +211,18 @@
 ;;;;;;;;; @[ctx]  Generalities about contextes
 
 
-(def ctx
-
-  "Empty context, waiting to be used for future endaveours.
-  
-   It provides an empty [[rmap]] for scheduling events."
-
-  {::events -rmap-empty})
-
-
-
-
-(defn e-path
-
-  "Without arguments, returns the path to the working queue as a sequence.
-  
-   Otherwise, returns a path for the event tree."
-
-  ([]
-
-   (list ::e-flat
-         ::queue))
-
-
-  ([timevec path]
-
-   (cons ::events
-         (cons timevec
-               path))))
-
-
-
-
 (defn f-path
 
-  "Returns a new path locating the given one in the flow tree, as a sequence.
-  
-   If `path` is not provided, get one by calling [[path]], "
+  "Returns a new path locating the given one in the flow tree, as a sequence."
 
   ([]
 
-   (f-path (path ctx)))
+   ::flows)
 
 
   ([path]
 
-   (cons ::flows
+   (cons (f-path)
          path)))
 
 
@@ -475,16 +408,13 @@
 
   ([ctx timevec path event]
 
-   (e-update ctx
-             timevec
-             path
-             (fn check-e-flat [node]
-               (if (map? node)
-                 (-ex-ctx ctx
-                          timevec
-                          path
-                          "Cannot assoc an event at a node")
-                 event)))))
+   (update ctx
+           ::events
+           (fnil dsim.ranktree/assoc
+                 (dsim.ranktree/tree))
+           timevec
+           path
+           (-not-empty-event event))))
 
 
 
@@ -551,9 +481,12 @@
 
   ([ctx timevec path]
 
-   (void/dissoc-in ctx
-                   (e-path timevec
-                           path))))
+   (update ctx
+           ::events
+           (fn -e-dissoc [events]
+             (some-> events
+                     (dsim.ranktree/dissoc timevec
+                                           path))))))
 
 
 
@@ -619,17 +552,32 @@
 
   ([ctx]
 
+   (e-get ctx
+          nil))
+
+
+  ([ctx not-found]
+
    (get-in ctx
            [::e-flat
-            ::queue]))
+            ::queue]
+           not-found))
 
 
   ([ctx timevec path]
 
-   (get-in ctx
-           (e-path timevec
-                   path))))
+   (e-get ctx
+          timevec
+          path
+          nil))
 
+
+  ([ctx timevec path not-found]
+
+   (dsim.ranktree/get (::events ctx)
+                      timevec
+                      path
+                      not-found)))
 
 
 
@@ -662,51 +610,9 @@
    (e-update ctx
              timevec
              path
-             (fn -e-isole [event]
+             (fn -e-isolate [event]
                (some-> event
                        queue)))))
-
-
-
-
-(defn e-pop
-
-  "Pops the first element in an event queue.
-  
-   Arities follow similar convention as [[e-assoc]]."
-
-  ([ctx]
-
-   (update-in ctx
-              [::e-flat
-               ::queue]
-              pop))
-
-
-  ([ctx timevec]
-
-   (e-pop ctx
-          timevec
-          (path ctx)))
-
-
-  ([ctx timevec path]
-
-   (let [e-path' (e-path timevec
-                         path)
-         event   (get-in ctx
-                         e-path')]
-     (cond
-       (queue? event) (let [event-2 (pop event)]
-                        (if (empty? event-2)
-                          (void/dissoc-in ctx
-                                          e-path')
-                          (assoc-in ctx
-                                    e-path'
-                                    event-2)))
-       (fn? event)    (void/dissoc-in ctx
-                                      e-path')
-       :else          ctx))))
 
 
 
@@ -784,14 +690,15 @@
              (path ctx)
              f))
 
-
   ([ctx timevec path f]
 
-   (void/update-in ctx
-                   (e-path timevec
-                           path)
-                   (comp -not-empty-event
-                         f))))
+   (update ctx
+           ::events
+           (fnil dsim.ranktree/update
+                 (dsim.ranktree/tree))
+           timevec
+           path
+           f)))
 
 
 
@@ -815,28 +722,13 @@
 
   [timevec dtimevec]
 
-  (if (empty? dtimevec)
-    timevec
-    (let [n-timevec  (count timevec)
-          n-dtimevec (count dtimevec)
-          [base
-           [front
-            rear]]   (if (<= n-timevec
-                             n-dtimevec)
-                       [timevec
-                        (split-at n-timevec
-                                 dtimevec)]
-                       [dtimevec
-                        (split-at n-dtimevec
-                                  timevec)])]
-      (when (neg? (first dtimevec))
-        (throw (ex-info "Cannot add negative time interval to timevec"
-                        {::dtimevec dtimevec
-                         ::timevec  timevec})))
-      (into (mapv +
-                  base
-                  front)
-            rear))))
+  (when (some-> (first dtimevec)
+                neg?)
+    (throw (ex-info "Cannot add negative time interval to timevec"
+                   {::dtimevec dtimevec
+                    ::timevec  timevec})))
+  (dsim.ranktree/r+ timevec
+                    dtimevec))
 
 
 
@@ -883,6 +775,11 @@
 (defn- -q-exec
 
   ;; Executes the given `q`.
+  ;;
+  ;; Fugly, but works.
+  ;;
+  ;; TODO. Cannot try-catch accross recur... What degree of isolation is needed?
+
 
   ([e-handler ctx q]
 
@@ -951,82 +848,39 @@
 
 
 
-(defn- -fn-u-exec
+(defn- -e-walk
 
-  ;; Returns a function [e-handler ctx] knowing how to execute event unit `u`.
-
-  [path u]
-  
-  (fn u-exec [e-handler ctx]
-    (let [ctx-2 (e-handler (update ctx
-                                   ::e-flat
-                                   merge
-                                   {::path  path
-                                    ::queue (queue)})
-                           u)
-          wq    (e-get ctx)]
-      (if (empty? wq)
-        ctx-2
-        (-q-exec e-handler
-                 ctx-2
-                 wq)))))
-
-
-
-
-(defn- -fn-q-exec
-
-  ;; Returns a function [e-handler ctx] knowing of to execute event queue `q`.
-
-  [path q]
-
-  (fn q-exec [e-handler ctx]
-    (-q-exec e-handler
-             (assoc-in ctx
-                       [::e-flat
-                        ::path]
-                       path)
-             q)))
-
-
-
-
-(defn- -e-fetch
-
-  ;; Pops first event found in `node`
-  ;; Returns [popped-state leaf-handler] where `leaf-handler` is a function [e-handler ctx] -> ctx.
   ;;
-  ;; TODO. Micro-optimize knowing we have a map in the first pass?
 
-  ([node]
+  [e-handler ctx path node]
 
-   (-e-fetch node
-             []))
-
-
-  ([node path]
-
-   (cond
-      (map? node)   (let [[k
-                           node-next]  (first node)
-                          [node-next-2
-                           :as ret]    (-e-fetch node-next
-                                                 (conj path
-                                                       k))]
-                      (assoc ret
-                             0
-                             (if (empty? node-next-2)
-                               (dissoc node
-                                       k)
-                               (assoc node
-                                      k
-                                      node-next-2))))
-      (queue? node) [nil
-                     (-fn-q-exec path
-                                 node)]
-      :else         [nil
-                     (-fn-u-exec path
-                                 node)])))
+  (cond
+    (map? node)   (reduce-kv (fn deeper [ctx-2 k node-next]
+                               (-e-walk e-handler
+                                        ctx-2
+                                        (conj path
+                                              k)
+                                        node-next))
+                             ctx
+                             node)
+    (queue? node) (-q-exec e-handler
+                           (assoc-in ctx
+                                     [::e-flat
+                                      ::path]
+                                     path)
+                           node)
+    :else         (let [ctx-2 (e-handler (update ctx
+                                                 ::e-flat
+                                                 merge
+                                                 {::path  path
+                                                  ::queue (queue)})
+                                         node)
+                        wq    (e-get ctx)]
+                    (if (empty? wq)
+                      ctx-2
+                      (-q-exec e-handler
+                               ctx-2
+                               wq)))))
 
 
 
@@ -1035,22 +889,34 @@
 
   ;; Executes the first event found in `e-tree`.
 
-  [e-handler ctx timevec e-tree]
+  [e-handler ctx ptime e-tree]
 
-  (let [[popped-events
-         leaf-handler] (-e-fetch e-tree)]
-    (leaf-handler e-handler
-                  (-> ctx
-                      (update ::events
-                              (fn update-popped [events]
-                                (if (empty? popped-events)
-                                  (dissoc events
-                                          timevec)
-                                  (assoc events
-                                         timevec
-                                         popped-events))))
-                      (assoc ::e-flat
-                             {::timevec timevec})))))
+  (if (sorted? e-tree)
+    (let [[e-tree-2
+           timevec
+           node]   (dsim.ranktree/pop* e-tree
+                                       [ptime])]
+      (-e-walk e-handler
+               (-> ctx
+                   (void/update ::events
+                                (fn assoc-poped [events]
+                                  (not-empty (void/assoc-strict events
+                                                                ptime
+                                                                e-tree-2))))
+                   (assoc-in [::e-flat
+                              ::timevec]
+                             timevec))
+               []
+               node))
+    (-e-walk e-handler
+             (-> ctx
+                 (void/dissoc-in [::events
+                                  ptime])
+                 (assoc-in [::e-flat
+                            ::timevec]
+                           [ptime]))
+             []
+             e-tree)))
 
 
 
@@ -1082,17 +948,6 @@
   (throw (ex-info "Ptime of enqueued events is < current ptime"
                   {::e-ptime e-ptime
                    ::ptime   ptime})))
-
-
-
-
-(defn- -e-next
-
-  ;; Returns the next event subtree for the next timevec.
-
-  [ctx]
-
-  (first (::events ctx)))
 
 
 
@@ -1179,45 +1034,37 @@
 (defn- -jump-until
 
   ;; Cf. [[jump-until]]
-  ;;
-  ;; A bit fugly, but straightforward, or is it...
 
-  [ctx ptime e-timevec e-tree pred e-handler before-ptime after-ptime]
+  [ctx ptime e-tree pred e-handler before-ptime after-ptime]
 
-  (loop [ctx       ctx
-         ptime     ptime
-         e-timevec e-timevec
-         e-tree    e-tree]
-    (let [ctx-2                 (-e-exec e-handler
-                                         ctx
-                                         e-timevec
-                                         e-tree)
-          [[e-ptime-next
-            :as e-timevec-next]
-           e-tree-next
-           :as e-next]          (-e-next ctx-2)]
-    (if e-next 
+  (loop [ctx    ctx
+         ptime  ptime
+         e-tree e-tree]
+    (let [ctx-2         (-e-exec e-handler
+                                 ctx
+                                 ptime
+                                 e-tree)
+          [ptime-next
+           e-tree-next] (first (::events ctx-2))]
       (cond
-        (= e-ptime-next
-           ptime)       (recur ctx-2
-                               ptime
-                               e-timevec-next
-                               e-tree-next)
-        (> e-ptime-next
-           ptime)       (let [ctx-3 (after-ptime ctx-2)]
-                          (or (pred ctx-3
-                                    ptime
-                                    e-ptime-next)
-                              (recur (before-ptime ctx-3
-                                                   e-ptime-next)
-                                     e-ptime-next
-                                     e-timevec-next
-                                     e-tree-next)))
-        :else             (throw (ex-info "Point in time of enqueued events is < current ptime"
-                                          {::e-ptime e-ptime-next
-                                           ::ptime   ptime})))
-      (-after-eager-jump ctx-2
-                         after-ptime)))))
+        (nil? ptime-next) (-after-eager-jump ctx-2
+                                             after-ptime)
+        (> ptime-next
+           ptime)         (let [ctx-3 (after-ptime ctx-2)]
+                            (or (pred ctx-3
+                                      ptime
+                                      ptime-next)
+                                (recur (before-ptime ctx-3
+                                                     ptime-next)
+                                       ptime-next
+                                       e-tree-next)))
+        (= ptime-next
+           ptime)         (recur ctx-2
+                                 ptime
+                                 e-tree-next)
+        :else             (throw (ex-info "Ptime of enqueued events is < current ptime"
+                                          {::e-ptime ptime-next
+                                           ::ptime   ptime}))))))
 
 
 
@@ -1260,16 +1107,14 @@
 
   ([ctx pred options]
 
-   (let [[[ptime
-           :as e-timevec]
-          e-tree
-          :as e-next]     (-e-next ctx)]
+   (let [[e-ptime
+          e-tree] (first (::events ctx))]
      (-validate-ctx-ptime ctx
-                          ptime)
-     (if e-next
+                          e-ptime)
+     (if e-ptime
        (or (pred ctx
                  nil
-                 ptime)
+                 e-ptime)
            (let [e-handler    (or (::e-handler options)
                                   -e-handler-f)
                  before-ptime (-fn-before-ptime options)
@@ -1278,9 +1123,8 @@
                  (vary-meta assoc
                             ::e-handler
                             e-handler)
-                 (before-ptime ptime)
-                 (-jump-until ptime
-                              e-timevec
+                 (before-ptime e-ptime)
+                 (-jump-until e-ptime
                               e-tree
                               pred
                               e-handler
@@ -1367,40 +1211,37 @@
 
   ;; Cf. [[history]]
 
-  [ctx ptime e-timevec e-tree e-handler before-ptime after-ptime]
+  [ctx ptime e-tree e-handler before-ptime after-ptime]
 
-  (let [ctx-2 (-e-exec e-handler
-                       ctx
-                       e-timevec
-                       e-tree)]
-    (if-some [[[e-ptime-next
-                :as e-timevec-next]
-               e-tree-next]         (-e-next ctx-2)]
-      (cond
-        (= e-ptime-next
-           ptime)       (recur ctx-2
+  (let [ctx-2         (-e-exec e-handler
+                               ctx
                                ptime
-                               e-timevec-next
-                               e-tree-next
-                               e-handler
-                               before-ptime
-                               after-ptime)
-        (> e-ptime-next
-           ptime)       (let [ctx-3 (after-ptime ctx-2)]
+                               e-tree)
+        [ptime-next
+         e-tree-next] (first (::events ctx-2))]
+    (cond
+      (nil? ptime-next) (cons (after-ptime ctx-2)
+                              nil)
+      (> ptime-next
+         ptime)         (let [ctx-3 (after-ptime ctx-2)]
                           (cons (-remove-e-handler ctx-3)
                                 (lazy-seq
                                   (-history (before-ptime ctx-3
-                                                          e-ptime-next)
-                                            e-ptime-next
-                                            e-timevec-next
+                                                          ptime-next)
+                                            ptime-next
                                             e-tree-next
                                             e-handler
                                             before-ptime
                                             after-ptime))))
-        :else           (-throw-ptime-current e-ptime-next
-                                              ptime))
-      (cons (after-ptime ctx-2)
-            nil))))
+      (= ptime-next
+         ptime)         (recur ctx-2
+                               ptime
+                               e-tree-next
+                               e-handler
+                               before-ptime
+                               after-ptime)
+      :else             (-throw-ptime-current ptime-next
+                                              ptime))))
 
 
 
@@ -1424,11 +1265,10 @@
   ([ctx options]
 
    (lazy-seq
-     (when-some [[[ptime
-                  :as e-timevec]
-                  e-tree]         (-e-next ctx)]
+     (when-some [[e-ptime
+                  e-tree] (first (::events ctx))]
        (-validate-ctx-ptime ctx
-                            ptime)
+                            e-ptime)
        (let [before-ptime (-fn-before-ptime options)
              after-ptime  (-fn-after-ptime options)
              e-handler    (or (::e-handler options)
@@ -1437,9 +1277,8 @@
                        (vary-meta assoc
                                   ::e-handler
                                   e-handler)
-                       (before-ptime ptime))
-                   ptime
-                   e-timevec
+                       (before-ptime e-ptime))
+                   e-ptime
                    e-tree
                    e-handler
                    before-ptime
@@ -1824,7 +1663,7 @@
 
 (defn wq-vary-meta
 
-  "Uses Clojure's `vary-meta` on the working queue.
+  "Uses Clojure's `vary-meta` on the working queue. (Unlike, does not accept variadic arguments to apply).
   
    When that queue is copied or moved into the future (eg. by calling [[wq-delay]]), it is a convenient way of storing
    some state at the level of a queue which can later be retrieved using [[wq-meta]]. When a queue is garbage collected,
@@ -1837,7 +1676,7 @@
                    f)))
 
 
-  ([ctx f]
+  ([ctx f & args]
 
    (update-in ctx
               [::e-flat
@@ -1880,8 +1719,7 @@
        (or (get k->f-2
                 k)
            (throw (ex-info "Function not found for operation"
-                           {::ctx  ctx
-                            ::op-k k}))))
+                           {::op-k k}))))
 
       ([ctx [k & args :as op]]
 
@@ -2078,8 +1916,7 @@
 
   ([ctx path]
 
-   (-f-sample* (e-assoc ctx
-                        (queue))
+   (-f-sample* (e-dissoc ctx)
                (first (timevec ctx))
                path
                (get-in ctx
@@ -2123,14 +1960,17 @@
 
   ([ctx timevec path]
 
-   (update-in ctx
-              [::events
-               (into [(first timevec)
-                      rank-flows]
-                     (rest timevec))]
-              dsim.util/assoc-shortest
-              path
-              f-sample*)))
+   (update ctx
+           ::events
+           (fnil dsim.ranktree/update
+                 (dsim.ranktree/tree))
+           (into [(first timevec)
+                  rank-flows]
+                 (rest timevec))
+           (fn deduplicate-sampling [node]
+             (dsim.util/assoc-shortest node
+                                       path
+                                       f-sample*)))))
 
 
 
@@ -2300,7 +2140,7 @@
                            (< (first timevec-sample)
                               ptime-end))
                     (f-sample ctx
-                                    timevec-sample)
+                              timevec-sample)
                     ctx)))
               duration
               flow)))

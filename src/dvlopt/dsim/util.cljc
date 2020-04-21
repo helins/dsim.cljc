@@ -3,7 +3,9 @@
   "Utilities, the user should not be bothered by this."
 
   {:author "Adam Helinski"
-   :no-doc true})
+   :no-doc true}
+
+  (:require [dvlopt.void :as void]))
 
 
 
@@ -87,5 +89,3 @@
 ;                           v-2))))
 ;              hmap-1
 ;              hmap-2))
-
-

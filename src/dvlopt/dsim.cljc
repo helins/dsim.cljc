@@ -267,7 +267,7 @@
 
   [ctx]
 
-  (first (ffirst (::events ctx))))
+  (ffirst (::events ctx)))
 
 
 
@@ -481,12 +481,12 @@
 
   ([ctx timevec path]
 
-   (update ctx
-           ::events
-           (fn -e-dissoc [events]
-             (some-> events
-                     (dsim.ranktree/dissoc timevec
-                                           path))))))
+   (void/update ctx
+                ::events
+                (fn -e-dissoc [events]
+                  (some-> events
+                          (dsim.ranktree/dissoc timevec
+                                                path))))))
 
 
 
@@ -673,14 +673,14 @@
 
   ([ctx f]
 
-   (update-in ctx
-              [::e-flat
-               ::queue]
-              (fn safe-f [wq]
-                (when (nil? wq)
-                  (throw (ex-info "No working queue at the moment"
-                                  {::ctx ctx})))
-                (f wq))))
+   (void/update-in ctx
+                   [::e-flat
+                    ::queue]
+                   (fn safe-f [wq]
+                     (when (nil? wq)
+                       (throw (ex-info "No working queue at the moment"
+                                       {::ctx ctx})))
+                     (f wq))))
 
 
   ([ctx timevec f]
@@ -692,13 +692,13 @@
 
   ([ctx timevec path f]
 
-   (update ctx
-           ::events
-           (fnil dsim.ranktree/update
-                 (dsim.ranktree/tree))
-           timevec
-           path
-           f)))
+   (void/update ctx
+                ::events
+                (fnil dsim.ranktree/update
+                      (dsim.ranktree/tree))
+                timevec
+                path
+                f)))
 
 
 
@@ -757,7 +757,7 @@
 ;;;;;;;;;; @[jump]  Moving a context through time
 
 
-(defn- -q-exec
+(defn- -exec-q
 
   ;; Executes the given event `q`.
   ;;
@@ -770,7 +770,7 @@
 
   ([e-handler ctx q]
 
-   (-q-exec e-handler
+   (-exec-q e-handler
             ctx
             q
             identity))
@@ -783,7 +783,7 @@
          [ctx-2
           q-3]  (try
                   (if (queue? event)
-                    [(-q-exec e-handler
+                    [(-exec-q e-handler
                               ctx
                               event
                               (fn restore-outer [ctx]
@@ -839,75 +839,242 @@
 
 
 
-(defn- -e-walk
+(defn- -exec-e
 
-  ;; Walks an event tree and executes events.
+  ;; Executes an event.
+  ;;
+  ;; Cf. [[engine*]]
 
-  [e-handler ctx path node]
+  [e-handler ctx ranks path event]
 
-  (cond
-    (map? node)   (reduce-kv (fn deeper [ctx-2 k node-next]
-                               (-e-walk e-handler
-                                        ctx-2
-                                        (conj path
-                                              k)
-                                        node-next))
-                             ctx
-                             node)
-    (queue? node) (-q-exec e-handler
-                           (assoc-in ctx
-                                     [::e-flat
-                                      ::path]
-                                     path)
-                           node)
-    :else         (let [ctx-2 (e-handler (update ctx
-                                                 ::e-flat
-                                                 merge
-                                                 {::path  path
-                                                  ::queue (queue)})
-                                         node)
-                        wq    (e-get ctx)]
-                    (if (empty? wq)
-                      ctx-2
-                      (-q-exec e-handler
-                               ctx-2
-                               wq)))))
+  (if (queue? event)
+     (-exec-q e-handler
+              (assoc ctx
+                     ::e-flat
+                     {::path    path
+                      ::timevec ranks})
+              event)
+     (let [ctx-2 (e-handler (assoc ctx
+                                   ::e-flat
+                                   {::path    path
+                                    ::queue   (queue)
+                                    ::timevec ranks})
+                            event)
+           wq    (e-get ctx)]
+       (if (empty? wq)
+         ctx-2
+         (-exec-q e-handler
+                  ctx-2
+                  wq)))))
 
 
 
+(defn- -period-end
 
-(defn- -e-exec
+  ;; Cf. [[engine*]]
 
-  ;; Executes the first event found in `e-tree`.
+  [ctx]
+
+  (-> ctx
+      (dissoc ::e-flat)
+      (vary-meta (fn clean-e-handler [mta]
+                   (not-empty (dissoc mta
+                                      ::e-handler))))))
+
+
+
+(defn engine*
+
+  ""
+
+  ;; The event handler provided by the user (typically the result of [[op-applier]], if any, needs
+  ;; to figure in the ctx metadata. Everytime a ctx is returned to the user after some jump, it must
+  ;; be removed.
+  ;;
+  ;; The main purpose of event handler is for the ctx to be serializable. Hence, keeping the event handler
+  ;; in the metadata defeats that purpose.
+
+  ([]
+
+   (engine* nil))
+
+
+  ([options]
+
+   (let [e-handler (or (::e-handler options)
+                       (fn ef-handler [ctx f]
+                         (f ctx)))]
+     {::period-start (fn period-start [ctx]
+                       (vary-meta ctx
+                                  assoc
+                                  ::e-handler
+                                  e-handler))
+      ::period-end   -period-end
+      ::run          (fn run 
+
+                       ([ctx]
+                        (when-some [events (::events ctx)]
+                          (run ctx
+                               events)))
+
+                       ([ctx events]
+                        (dsim.ranktree/pop-walk ctx
+                                                events
+                                                (fn reattach-tree [ctx events-2]
+                                                  (void/assoc-strict ctx
+                                                                     ::events
+                                                                     events-2))
+                                                (partial -exec-e
+                                                         e-handler))))})))
+
+
+
+
+(defn engine
+
+  ""
+
+  ([]
+
+   (engine nil))
+
+
+  ([options]
+
+   (let [run*         (engine* options)
+         period-start (::period-start run*)
+         period-end   (::period-end run*)
+         run          (::run run*)]
+     (fn run-2 [ctx]
+       (when-some [events (::events ctx)]
+         (-> ctx
+             period-start
+             (run events)
+             (some-> period-end)))))))
+
+
+
+
+(defn engine-ptime
+
+  "Moves the `ctx` through time, jumping from ptime to ptime following events.
+  
+   Before each ptime, `pred` is called. If it returns nil, all events for the next ptime are executed.
+   If it returns anything, jumping stops and that result is returned to the user.
+
+   For instance, here is how `pred` is implemented for [[jump-to]] which jumps until `ptime-target`.
+   When it needs to stop, it returns the `ctx` as it is at that moment:
+
+   ```clojure
+   (fn pred [ctx _last-ptime next-ptime]
+     (when (> next-ptime
+              ptime-target)
+       ctx) 
+   ```
+
+   In more involved cases, this design allow `pred` to modify `ctx`, for instance to mark why it jumping
+   stopped.
+  
+
+   Options are a nilable map such as:
+  
+   | Key | Meaning | Optional? |
+   |:---:|---|:---:|
+   | :dvlopt.dsim/after-ptime  | Function ctx -> ctx called after each distinct ptime.  | Yes |
+   | :dvlopt.dsim/before-ptime | Function ctx -> ctx called before each distinct ptime. | Yes |
+   | :dvlopt.dsim/e-handler | Event handler when unit events are data instead o functions See [[op-applier]]. | Yes |"
+
+  ;; Prepares options for any kind of jump.
+  ;;
+  ;; Cf. [[jump-until]]
+  ;;
+  ;; MAYBEDO. ::after-ptime
+  ;;          Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
+  ;;          Would it be really useful to share some state between all events on a per ptime basis?
+  ;;          Or per timevec?
+  ;;          Probably not...
+
+
+  ([]
+
+   (engine-ptime nil))
+
+
+  ([options]
+
+   (let [run*         (engine* options)
+         period-start (::period-start run*)
+         period-end   (::period-end run*)
+         run          (::run run*)
+         before       (or (::before options)
+                          identity)
+         before-2     (fn before-2 [ctx ptime]
+                        (before (assoc ctx
+                                       ::ptime
+                                       ptime)))
+         after        (or (::after options)
+                          identity)
+         after-2      (fn after-2 [ctx]
+                        (-> ctx
+                            period-end
+                            after))]
+     (fn run-ptime
+       
+       ([ctx]
+        (when-some [events (::events ctx)]
+          (let [ptime-next (ffirst events)]
+            (if (some->> (::ptime ctx)
+                         (<= ptime-next))
+              (throw (ex-info "Ptime of events must be > ctx ptime"
+                              {::ptime      ptime
+                               ::ptime-next ptime-next}))
+              (-> ctx
+                  period-start
+                  (before-2 ptime-next)
+                  (run events)
+                  (run-ptime ptime-next))))))
+
+       ([ctx ptime]
+        (if-some [events (::events ctx)]
+          (let [ptime-next (ffirst events)]
+            (cond
+              (> ptime-next
+                 ptime)     (after-2 ctx)
+              (= ptime-next
+                 ptime)     (recur (run ctx
+                                        events)
+                                   ptime)
+              :else         (throw (ex-info "Ptime of enqueued events is < current ptime"
+                                            {::ptime      ptime
+                                             ::ptime-next ptime-next}))))
+          (after-2 ctx)))))))
+
+
+
+
+(defn- -exec-ptime
+
+  ;; Executes the first event found in `e-tree`, which we know is the subtree for the given
+  ;; `ptime`.
+  ;;
+  ;; Cf. [[jump-until]]
 
   [e-handler ctx ptime e-tree]
 
-  (if (sorted? e-tree)
-    (let [[e-tree-2
-           timevec
-           node]   (dsim.ranktree/pop* e-tree
-                                       [ptime])]
-      (-e-walk e-handler
-               (-> ctx
-                   (void/update ::events
-                                (fn assoc-poped [events]
-                                  (not-empty (void/assoc-strict events
-                                                                ptime
-                                                                e-tree-2))))
-                   (assoc-in [::e-flat
-                              ::timevec]
-                             timevec))
-               []
-               node))
-    (-e-walk e-handler
-             (-> ctx
-                 (void/dissoc-in [::events
-                                  ptime])
-                 (assoc-in [::e-flat
-                            ::timevec]
-                           [ptime]))
-             []
-             e-tree)))
+  (dsim.ranktree/pop-walk* ctx
+                           e-tree
+                           (fn reattach-tree [ctx e-tree-2]
+                             (if e-tree-2
+                               (assoc-in ctx
+                                         [::events
+                                          ptime]
+                                         e-tree-2)
+                               (void/dissoc-in ctx
+                                               [::events
+                                                ptime])))
+                           [ptime]
+                           (partial -exec-e
+                                    e-handler)))
 
 
 
@@ -943,323 +1110,27 @@
 
 
 
-(defn- -jump-options
 
-  ;; Prepares options for any kind of jump.
-  ;;
-  ;; Cf. [[jump-until]]
-  ;;
-  ;; MAYBEDO. ::after-ptime
-  ;;          Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
-  ;;          Would it be really useful to share some state between all events on a per ptime basis?
-  ;;          Or per timevec?
-  ;;          Probably not...
 
-  [options]
 
-  (let [before-ptime (or (::before-ptime options)
-                         identity)
-        after-ptime  (or (::after-ptime options)
-                         identity)]
-    {::before-ptime (fn before-ptime-2 [ctx ptime]
-                      (before-ptime (assoc ctx
-                                           ::ptime
-                                           ptime)))
-     ::after-ptime  (fn after-ptime-2 [ctx]
-                      (after-ptime (dissoc ctx
-                                           ::e-flat)))
-     ::e-handler    (or (::e-handler options)
-                        (fn f-handler [ctx f]
-                          (f ctx)))}))
 
 
 
 
-(defn- -after-eager-jump
 
-  ;; Finalize a ctx for after a jump (when any of the `jump-XXX` functions returns or for each computed
-  ;; ctx in a `history`.
 
-  [ctx after-ptime]
 
-  (-> ctx
-      (dissoc ::e-flat)
-      after-ptime))
 
+(defn historic
 
+  ""
 
+  [engine]
 
-(defn- -dissoc-e-handler
-
-  ;; The event handler provided by the user (typically the result of [[op-applier]], if any, needs
-  ;; to figure in the ctx metadata. Everytime a ctx is returned to the user after some jump, it must
-  ;; be removed.
-  ;;
-  ;; The main purpose of event handler is for the ctx to be serializable. Hence, keeping the event handler
-  ;; in the metadata defeats that purpose.
-
-  [ctx]
-
-  (vary-meta ctx
-             (fn clean-e-handler [mta]
-               (not-empty (dissoc mta
-                                  ::e-handler)))))
-
-
-
-
-(defn- -jump-until
-
-  ;; Cf. [[jump-until]]
-
-  [ctx ptime e-tree pred e-handler before-ptime after-ptime]
-
-  (loop [ctx    ctx
-         ptime  ptime
-         e-tree e-tree]
-    (let [ctx-2         (-e-exec e-handler
-                                 ctx
-                                 ptime
-                                 e-tree)
-          [ptime-next
-           e-tree-next] (first (::events ctx-2))]
-      (cond
-        (nil? ptime-next) (-after-eager-jump ctx-2
-                                             after-ptime)
-        (> ptime-next
-           ptime)         (let [ctx-3 (after-ptime ctx-2)]
-                            (or (pred ctx-3
-                                      ptime
-                                      ptime-next)
-                                (recur (before-ptime ctx-3
-                                                     ptime-next)
-                                       ptime-next
-                                       e-tree-next)))
-        (= ptime-next
-           ptime)         (recur ctx-2
-                                 ptime
-                                 e-tree-next)
-        :else             (-throw-time-travel ptime-next
-                                              ptime)))))
-
-
-
-
-(defn jump-until
-
-  "Moves the `ctx` through time, jumping from ptime to ptime following events.
-  
-   Before each ptime, `pred` is called. If it returns nil, all events for the next ptime are executed.
-   If it returns anything, jumping stops and that result is returned to the user.
-
-   For instance, here is how `pred` is implemented for [[jump-to]] which jumps until `ptime-target`.
-   When it needs to stop, it returns the `ctx` as it is at that moment:
-
-   ```clojure
-   (fn pred [ctx _last-ptime next-ptime]
-     (when (> next-ptime
-              ptime-target)
-       ctx) 
-   ```
-
-   In more involved cases, this design allow `pred` to modify `ctx`, for instance to mark why it jumping
-   stopped.
-  
-
-   Options are a nilable map such as:
-  
-   | Key | Meaning | Optional? |
-   |:---:|---|:---:|
-   | :dvlopt.dsim/after-ptime  | Function ctx -> ctx called after each distinct ptime.  | Yes |
-   | :dvlopt.dsim/before-ptime | Function ctx -> ctx called before each distinct ptime. | Yes |
-   | :dvlopt.dsim/e-handler | Event handler when unit events are data instead o functions See [[op-applier]]. | Yes |"
-
-  ([ctx pred]
-
-   (jump-until ctx
-               pred
-               nil))
-
-
-  ([ctx pred options]
-
-   (let [[e-ptime
-          e-tree] (first (::events ctx))]
-     (-validate-ctx-ptime ctx
-                          e-ptime)
-     (if e-ptime
-       (or (pred ctx
-                 nil
-                 e-ptime)
-           (let [options-2    (-jump-options options)
-                 before-ptime (::before-ptime options-2)
-                 e-handler    (::e-handler options-2)]
-             (-> ctx
-                 (vary-meta assoc
-                            ::e-handler
-                            e-handler)
-                 (before-ptime e-ptime)
-                 (-jump-until e-ptime
-                              e-tree
-                              pred
-                              e-handler
-                              before-ptime
-                              (::after-ptime options-2))
-                 -dissoc-e-handler)))
-       ctx))))
-
-
-
-
-(defn jump
-
-  "Jumps to the next ptime.
-  
-   Implemented using [[jump-until]]."
-
-  ([ctx]
-
-   (jump ctx
-         nil))
-
-
-  ([ctx options]
-
-   (jump-until ctx
-               (fn single-ptime [ctx ptime-last _ptime-next]
-                 (when ptime-last
-                   ctx))
-               options)))
-
-
-
-
-(defn jump-to
-
-  "Jumps by executing all events until `ptime`. Stops earlier if there are no event scheduled exactly at
-   `ptime`.
-
-   Implemented using [[jump-until]]."
-
-  ([ctx ptime]
-
-   (jump-to ctx
-            ptime
-            nil))
-
-
-  ([ctx ptime options]
-
-   (jump-until ctx
-               (fn ptime-not-reached [ctx _ptime-last ptime-next]
-                 (when (> ptime-next
-                          ptime)
-                   ctx))
-               options)))
-
-
-
-
-(defn jump-to-end
-
-  "Jumps until there are no more events, meaning the context is stable and cannot evolve by itself anymore.
-
-   Implemented using [[jump-until]]."
-
-  ([ctx]
-
-   (jump-to-end ctx
-                nil))
-
-
-  ([ctx options]
-
-   (jump-until ctx
-               (fn always [_ctx _ptime _ptime-next]
-                 nil)
-               options)))
-
-
-
-
-(defn- -history
-
-  ;; Cf. [[history]]
-
-  [ctx ptime e-tree e-handler before-ptime after-ptime]
-
-  (let [ctx-2         (-e-exec e-handler
-                               ctx
-                               ptime
-                               e-tree)
-        [ptime-next
-         e-tree-next] (first (::events ctx-2))]
-    (cond
-      (nil? ptime-next) (cons (after-ptime ctx-2)
-                              nil)
-      (> ptime-next
-         ptime)         (let [ctx-3 (after-ptime ctx-2)]
-                          (cons (-dissoc-e-handler ctx-3)
-                                (lazy-seq
-                                  (-history (before-ptime ctx-3
-                                                          ptime-next)
-                                            ptime-next
-                                            e-tree-next
-                                            e-handler
-                                            before-ptime
-                                            after-ptime))))
-      (= ptime-next
-         ptime)         (recur ctx-2
-                               ptime
-                               e-tree-next
-                               e-handler
-                               before-ptime
-                               after-ptime)
-      :else             (-throw-time-travel ptime-next
-                                            ptime))))
-
-
-
-
-(defn history
-
-  "Returns a lazy sequence representing the full history of the given context.
-  
-   Each element represents a unique ptime.
-  
-   Lazy version of [[jump-to-end]].
-  
-   Options are as described in [[jump-until]]."
-
-  ([ctx]
-
-   (history ctx
-            nil))
-
-
-  ([ctx options]
-
-   (lazy-seq
-     (when-some [[e-ptime
-                  e-tree] (first (::events ctx))]
-       (-validate-ctx-ptime ctx
-                            e-ptime)
-       (let [options-2    (-jump-options options)
-             before-ptime (::before-ptime options-2)
-             after-ptime  (::after-ptime options-2)
-             e-handler    (::e-handler options-2)]
-         (-history (-> ctx
-                       (vary-meta assoc
-                                  ::e-handler
-                                  e-handler)
-                       (before-ptime e-ptime))
-                   e-ptime
-                   e-tree
-                   e-handler
-                   before-ptime
-                   (fn after-ptime-2 [ctx]
-                     (-after-eager-jump ctx
-                                        after-ptime))))))))
+  (fn run-lazy [ctx]
+    (take-while some?
+                (rest (iterate engine
+                               ctx)))))
 
 
 
@@ -1820,7 +1691,7 @@
         ctx-2     (void/dissoc-in ctx
                                   flow-path)]
     (if-some [q (not-empty (::queue flow-leaf))]
-      (-q-exec (::e-handler (meta ctx-2))
+      (-exec-q (::e-handler (meta ctx-2))
                (assoc-in ctx-2
                          [::e-flat
                           ::timevec]

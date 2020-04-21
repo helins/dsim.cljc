@@ -300,14 +300,14 @@
 
   ""
 
-  [node ranks]
+  [node ranks-prefix]
 
   (if (and (map? node)
            (sorted? node))
     (if-some [[k
                node-next] (first node)]
       (clj/update (pop* node-next
-                        (conj ranks
+                        (conj ranks-prefix
                               k))
                   0
                   (fn rebuild-tree [subtree]
@@ -318,10 +318,10 @@
                       (not-empty (clj/dissoc node
                                              k)))))
       [nil
-       ranks
+       ranks-prefix
        nil])
     [nil
-     ranks
+     ranks-prefix
      node]))
 
 
@@ -335,6 +335,74 @@
 
   (pop* tree
         []))
+
+
+
+
+(defn- -pop-walk
+
+  ;;
+
+  [state ranks path node f]
+
+  (if (map? node)
+    (reduce-kv (fn deeper [state-2 k node-next]
+                 (-pop-walk state-2
+                            ranks
+                            (conj path
+                                  k)
+                            node-next
+                            f))
+               state
+               node)
+    (f state
+       ranks
+       path
+       node)))
+
+
+
+
+(defn pop-walk*
+
+  ""
+
+  [ctx tree reattach-tree ranks-prefix f]
+
+  (if (sorted? tree)
+    (let [[tree-2
+           ranks
+           node]  (pop* tree
+                        ranks-prefix)]
+     (if (nil? node)
+       ctx
+       (-pop-walk (reattach-tree ctx
+                                 tree-2)
+                  ranks
+                  []
+                  node
+                  f)))
+    (-pop-walk (reattach-tree ctx
+                              nil)
+               ranks-prefix
+               []
+               tree
+               f)))
+
+
+
+
+(defn pop-walk
+
+  ""
+
+  [ctx tree reattach-tree f]
+
+  (pop-walk* ctx
+             tree
+             reattach-tree
+             []
+             f))
 
 
 

@@ -2,7 +2,8 @@
 
   {:author "Adam Helinski"}
 
-  (:require [clojure.test         :as t]
+  (:require [clojure.core         :as clj]
+            [clojure.test         :as t]
             [dvlopt.dsim.ranktree :as dsim.ranktree])
   (:refer-clojure :exclude [assoc
                             dissoc
@@ -182,3 +183,27 @@
             nil]
            (dsim.ranktree/pop (sorted-map)))
         "Nothing to pop"))
+
+
+
+
+(t/deftest pop-walk
+
+  (t/is (= {:events (sorted-map 0 (sorted-map 1 -42))
+            :n      42
+            :path   [:a :b]
+            :ranks  [0 0]}
+           (dsim.ranktree/pop-walk {:n 0}
+                                   (sorted-map 0 (sorted-map 0 {:a {:b 42}}
+                                                             1 -42))
+                                   (fn reattach-tree [ctx tree]
+                                     (clj/assoc ctx
+                                                :events
+                                                tree))
+                                   (fn f [ctx ranks path node]
+                                     (merge ctx
+                                            {:n     node
+                                             :path  path
+                                             :ranks ranks}))))
+        "")
+  )

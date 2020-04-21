@@ -153,30 +153,6 @@
 ;;;;;;;;; Generalities about contextes
 
 
-(t/deftest empty-event?
-
-
-  (t/is (true? (dsim/empty-event? nil))
-        "Nil is empty")
-
-  (t/is (true? (dsim/empty-event? (dsim/queue)))
-        "An empty queue has nothing to execute")
-
-  (t/is (true? (dsim/empty-event? (dsim/queue (dsim/queue))))
-        "Nested empty queues have nothing to execute")
-
-  (t/is (false? (dsim/empty-event? (fn event [ctx])))
-        "A function is not empty")
-
-  (t/is (false? (dsim/empty-event? (dsim/queue (fn event [ctx]))))
-        "A queue with a function is not empty")
-
-  (t/is (false? (dsim/empty-event? (dsim/queue (dsim/queue (fn event [ctx])))))
-        "Nested queues with a function are not empty"))
-
-
-
-
 (t/deftest reached?
 
   ;; Tests `ptime` as well.
@@ -723,7 +699,6 @@
 ;;
 ;;   `wq-breaker`
 ;;   `wq-capture`
-;;   `wq-conj`
 ;;   `wq-copy`
 ;;   `wq-do!`
 ;;   `wq-meta`

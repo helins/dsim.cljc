@@ -429,9 +429,9 @@
 
 (defn pop-walk
 
-  "Pops the given `tree`, then attaches it to `ctx` by calling (rettach-tree ctx popped-tree).
+  "Pops the given `tree`, then attaches it to `ctx` by calling `(rettach-tree ctx popped-tree)`.
 
-   Then walks every leaf in the popped node and pass around `ctx` by calling:
+   Then walks (depth-first) every leaf in the popped node and pass around `ctx` by calling:
 
    ```clojure
    (f ctx

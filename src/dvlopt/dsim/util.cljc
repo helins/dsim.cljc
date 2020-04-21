@@ -10,7 +10,7 @@
 
 
 
-;;;;;;;;;; Handling data
+;;;;;;;;;; Collections
 
 
 (defn- -assoc-shortest

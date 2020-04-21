@@ -228,21 +228,6 @@
 
 
 
-(defn empty-event?
-
-  "Is `event` empty?
-  
-   True if it is nil or a (possibly nested) empty queue."
-
-  [event]
-
-  (if (queue? event)
-    (empty-event? (peek event))
-    (nil? event)))
-
-
-
-
 (defn flowing?
 
   "Is the given context or some part of it currently in transition?"
@@ -341,29 +326,32 @@
 ;;;;;;;;;; @[events]  Adding, removing, and modifying events
 
 
-(defn- -ex-ctx
+(defn- -throw-e-mod
 
-  ;; TODO. Name.
+  ;; For errors occuring when modifying the event tree.
 
   [ctx timevec path msg]
 
   (throw (ex-info msg
-                  {::path    path
-                   ::ctx     ctx
-                   ::timevec timevec})))
+                  {::ctx     ctx
+                   ::timevec timevec
+                   ::path    path})))
 
 
 
 
-(defn- -not-empty-event
+
+
+
+
+
+(defn- -e-valid
 
   ;; Safe guard, throws if an event is empty.
 
   [event]
 
-  (when (empty-event? event)
-    (throw (ex-info "Event is nil or empty"
-                    {::event event})))
+  
   event)
 
 
@@ -386,7 +374,8 @@
    retrieved in ::e-flat. Providing neither explicitely refers to the current working queue, hence will not work
    as intended when a queue is not being executed.
 
-   All `e-XXX` functions accepting some `event` as argument will throw if that `event` is empty (see [[empty-event?]])"
+   It is bad practice to associate something such as an empty queue. It means that \"nothing\" is unnecessarily
+   scheduled."
 
   ([ctx event]
 
@@ -414,7 +403,7 @@
                  (dsim.ranktree/tree))
            timevec
            path
-           (-not-empty-event event))))
+           event)))
 
 
 
@@ -423,7 +412,10 @@
 
   "Enqueues an `event`.
 
-   Arities follow the same convention as [[e-assoc]]."
+   Arities follow the same convention as [[e-assoc]].
+
+   It is bad practice to conj something such as an empty queue. It means that \"nothing\" is unnecessarily
+   scheduled."
 
   ;; Clojure's `conj` can take several values, but this is messing with our arities.
 
@@ -455,10 +447,10 @@
                                       event)
                  (queue? node) (conj node
                                      event)
-                 :else         (-ex-ctx ctx
-                                        timevec
-                                        path
-                                        "Can only `e-conj` to nil or an event"))))))
+                 :else         (-throw-e-mod ctx
+                                             timevec
+                                             path
+                                             "Can only `e-conj` to nil or an event"))))))
 
 
 
@@ -495,7 +487,9 @@
 
   "Like [[e-conj]], but for a collection of `events`.
   
-   Metadata of the given collection is merged with the already existing queue if there is one."
+   Metadata of the given collection is merged with the already existing queue if there is one.
+
+   It is bad practice to add empty events. A queue will be scheduled for nothing."
   
   ([ctx events]
    
@@ -534,10 +528,10 @@
                                                 merge
                                                 (meta events))
                                      events)
-                 :else         (-ex-ctx ctx
-                                        timevec
-                                        path
-                                        "Can only `e-into` to nil or an event"))))))
+                 :else         (-throw-e-mod ctx
+                                             timevec
+                                             path
+                                             "Can only `e-into` to nil or an event"))))))
 
 
 
@@ -655,10 +649,10 @@
                                                 merge
                                                 (meta node))
                                      node)
-                 :else         (-ex-ctx ctx
-                                        timevec
-                                        path
-                                        "Can only `e-push` to nil or an event"))))))
+                 :else         (-throw-e-mod ctx
+                                             timevec
+                                             path
+                                             "Can only `e-push` to nil or an event"))))))
 
 
 
@@ -667,9 +661,11 @@
 
   "Seldom used by the user, often used by other `e-XXX` functions.
   
-   Works like standard `update` but tailored for the current working queue and the event tree.
+   Works like standard `update` but tailored for the current working queue or the event tree.
   
-   Arities follow similar convention as [[e-assoc]]."
+   Arities follow similar convention as [[e-assoc]].
+  
+   "
 
   ([ctx f]
 
@@ -737,7 +733,8 @@
 
   "Like [[timevec+]] but fetches the timevec from the `ctx`.
   
-   Not providing the `ctx` returns a function ctx -> timevec."
+   Not providing the `ctx` returns a function ctx -> timevec (often useful for function
+   such as [[wq-delay]]."
 
   ([dtimevec]
 
@@ -885,10 +882,34 @@
 
 (defn engine*
 
-  ""
+  "Used for building rank-based event engines.
+  
+   Unless one is building something creative and/or evil, one should feel satisfied with either
+   [[engine]] or [[engine-ptime]]. Someone trully interested will study how [[engine-ptime]] is
+   built before attempting to use this function.
+  
+   For options, see [[engine]].
+
+   Returns map containing:
+
+   ```clojure
+   {::period-start (fn [ctx]
+                     \"Prepares context for running\")
+                     
+    ::period-end   (fn [ctx]
+                     \"Does so clean-up in the context\")
+    ::run          (fn
+                     ([ctx]
+                      \"Pops and run the next ranked event subtree\")
+                     ([ctx events]
+                      \"Ditto, but uses directly the given events (useful for some optimizations)\"))}
+   ```
+   
+   An engine, if it detects that events need to be processed, must call ::period-start. It can then call
+   ::run one or several times, and when all needed events are processed, the engine must call ::period-end."
 
   ;; The event handler provided by the user (typically the result of [[op-applier]], if any, needs
-  ;; to figure in the ctx metadata. Everytime a ctx is returned to the user after some jump, it must
+  ;; to figure in the ctx metadata. Everytime a ctx is returned to the user after some period, it must
   ;; be removed.
   ;;
   ;; The main purpose of event handler is for the ctx to be serializable. Hence, keeping the event handler
@@ -932,7 +953,15 @@
 
 (defn engine
 
-  ""
+  "Returns a function ctx -> ctx which pops the next ranked events and executes them.
+
+   If the said ctx does not have any event, returns nil.
+  
+   `options` is a nilable map containing:
+  
+   | k | v |
+   |---|---|
+   | ::e-handler | Event handler, only needed if events are data (see [[op-applier]]). |"
 
   ([]
 
@@ -957,38 +986,23 @@
 
 (defn engine-ptime
 
-  "Moves the `ctx` through time, jumping from ptime to ptime following events.
+  "Like [[engine]], but treats the first rank of event as a ptime (point in time).
+
+   At each run, it executes all events for the next ptime while ensuring that time move forwards.
+   An event can schedule other events in the future or, at the earliest, for the same ptime.
+
+   Current ptime is associated in the context at ::ptime (see also [[ptime]]).
+   
+   `options` is a nilable map containing:
   
-   Before each ptime, `pred` is called. If it returns nil, all events for the next ptime are executed.
-   If it returns anything, jumping stops and that result is returned to the user.
+   | k | v |
+   |---|---|
+   | ::before | Function ctx -> ctx called right before the first event of the next ptime |
+   | ::after | Functoion ctx -> ctx called after executing all events of a ptime. |
+   | ::e-handler | See [[engine]]. |"
 
-   For instance, here is how `pred` is implemented for [[jump-to]] which jumps until `ptime-target`.
-   When it needs to stop, it returns the `ctx` as it is at that moment:
-
-   ```clojure
-   (fn pred [ctx _last-ptime next-ptime]
-     (when (> next-ptime
-              ptime-target)
-       ctx) 
-   ```
-
-   In more involved cases, this design allow `pred` to modify `ctx`, for instance to mark why it jumping
-   stopped.
-  
-
-   Options are a nilable map such as:
-  
-   | Key | Meaning | Optional? |
-   |:---:|---|:---:|
-   | :dvlopt.dsim/after-ptime  | Function ctx -> ctx called after each distinct ptime.  | Yes |
-   | :dvlopt.dsim/before-ptime | Function ctx -> ctx called before each distinct ptime. | Yes |
-   | :dvlopt.dsim/e-handler | Event handler when unit events are data instead o functions See [[op-applier]]. | Yes |"
-
-  ;; Prepares options for any kind of jump.
-  ;;
-  ;; Cf. [[jump-until]]
-  ;;
-  ;; MAYBEDO. ::after-ptime
+   
+  ;; MAYBEDO. ::after
   ;;          Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
   ;;          Would it be really useful to share some state between all events on a per ptime basis?
   ;;          Or per timevec?
@@ -1052,51 +1066,12 @@
 
 
 
-(defn- -validate-ctx-ptime
-
-  ;; Throws if ptime of events is <= ptime in ctx.
-  ;; Used for initiating a jump.
-
-  [ctx e-ptime]
-
-  (when-some [ptime (::ptime ctx)]
-    (when (<= e-ptime
-              ptime)
-      (throw (ex-info "Ptime of events must be > ctx ptime"
-                      {::e-ptime e-ptime
-                       ::ptime   ptime})))))
-
-
-
-
-(defn- -throw-time-travel
-
-  ;; Throws if the ptime of events if < ptime in ctx, as one cannot travel back in time.
-  ;; Used in between executing timevecs.
-
-  [e-ptime ptime]
-
-  (throw (ex-info "Ptime of enqueued events is < current ptime"
-                  {::e-ptime e-ptime
-                   ::ptime   ptime})))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 (defn historic
 
-  ""
+  "Given an engine, returns a function ctx -> lazy sequence of each run until all events
+   are executed.
+  
+   For instance, given an [[engine-ptime]], each element in the sequence will be a ptime."
 
   [engine]
 
@@ -1167,12 +1142,12 @@
 
    (queue event-a
           event-b
-          ;; delay of 100 time units
+          (wq-delay (wq-timevec+ [100]))
           event-b
           event-c
           event-a
           event-b
-          ;; delay of 100 time units
+          (wq-delay (wq-timevec+ [100]))
           event-b
           event-c)
    ```"
@@ -1203,45 +1178,14 @@
 
 
 
-(defn wq-conj
-
-  "Schedules the given `event` at the same path as the current flat event but with the computed timevec.
-
-   Less commonly used directly by the user, often used by other `wq-XXX` functions.
-
-   Unless something more sophisticated is needed, `ctx->timevec` will often be the result of `wq-timevec+`.
-   For instance, scheduling for 500 time units from now:
-
-   ```clojure
-   (wq-conj ctx
-            (wq-timevec+ [500])
-            event)
-   ```
-   
-   Throws if the `event` is empty (see [[empty-event?]])."
-
-  ([ctx->timevec event]
-
-   (fn event [ctx]
-     (wq-conj ctx
-              ctx->timevec
-              event)))
-
-
-  ([ctx ctx->timevec event]
-
-   (e-conj ctx
-           (ctx->timevec ctx)
-           event)))
-
-
-
-
 (defn wq-copy
 
-  "Uses [[wq-conj]] to copy the current working queue to a future timevec in the event tree.
+  "Copies the current working queue to a future timevec in the event tree.
   
-   Because this is Clojure, the queue is not actually copied as it is immutable."
+   Because this is Clojure, the queue is not actually copied as it is immutable.
+
+   Unless something more sophisticated is needed, `ctx->timevec` will often be the result of [[wq-timevec+]].
+   For instance, scheduling for 500 time units from now."
 
   ([ctx->timevec]
 
@@ -1252,9 +1196,9 @@
 
   ([ctx ctx->timevec]
 
-   (wq-conj ctx
-            ctx->timevec
-            (e-get ctx))))
+   (e-conj ctx
+           (ctx->timevec ctx)
+           (e-get ctx))))
 
 
 
@@ -1263,7 +1207,7 @@
 
   "Moves the rest of the working queue to a future timevec in the event tree.
   
-   See also [[wq-conj]]."
+   See also [[wq-copy]]."
 
   ([ctx->timevec]
 
@@ -1340,7 +1284,7 @@
 
 (defn wq-mirror
 
-  "Many events are typically interested in two things: the path they work on and the current ptime.
+  "Many discrete events are typically interested in two things: the path they work on and the current ptime.
   
    Turns `f` into a regular event which accepts a `ctx`. Underneath, calls (f ctx data-at-path current-ptime).
    The result is automatically associated in the `ctx` at the same path."
@@ -1368,7 +1312,7 @@
 
   "Example of a predicate meant to be used with [[wq-sreplay]].
   
-   The seed provided to [[wq-sreplay]], corresponding here to `n`, is the number of time a captured queue
+   The seed provided to [[wq-sreplay]], corresponding here to `n`, is the number of times a captured queue
    will be repeated. For instance, 2 means 3 occurences: the captured queue is first executed, then repeated
    twice.
   
@@ -1494,7 +1438,7 @@
 
 (defn op-applier
 
-  "Prepares a function that can be used as ::e-handler (see [[jump-until]]).
+  "Prepares a function that can be used as ::e-handler (see [[engine]], [[engine-time]]).
   
    The purpose is to represent unit events as data instead of functions so that a context is fully
    serializable when needed.
@@ -1569,11 +1513,10 @@
    :dvlopt.dsim/timevec+
    ```
 
-   There are meant to mimick normal function calls. For instance:
+   There are meant to mimick normal function calls. For instance, assuming ::event-a and
+   ::event-b have been provided to `op-applier`:
 
    ```clojure
-   ;; Assuming ::event-a and ::event-b have been provided to `op-applier`:
-
    (queue [:dvlopt.dsim/capture]
           [::event-a
           [:dvlopt.dsim/delay [:dvlopt.dsim/timevec+ [100]]]
@@ -1680,33 +1623,31 @@
 (defn- -f-sample*
 
   ;; Cf. [[f-sample*]]
-  ;;
-  ;; TODO. void
 
   [ctx ptime path node]
 
-  (if-some [flow (::flow node)]
-    (flow (assoc ctx
-                 ::e-flat
-                 {::path    path
-                  ::timevec (assoc (::timevec-init node)
-                                   0
-                                   ptime)}))
-    (reduce-kv (fn deeper [ctx-2 k node-next]
-                 (-f-sample* ctx
-                             ptime
-                             (conj path
-                                   k)
-                             node-next))
-               ctx
-               node)))
+  (or (void/call (::flow node)
+                 (assoc ctx
+                        ::e-flat
+                        {::path    path
+                         ::timevec (assoc (::timevec-init node)
+                                          0
+                                          ptime)}))
+      (reduce-kv (fn deeper [ctx-2 k node-next]
+                   (-f-sample* ctx
+                               ptime
+                               (conj path
+                                     k)
+                               node-next))
+                 ctx
+                 node)))
 
 
 
 
 (defn f-sample*
 
-  "Kept public for extreme use cases. For the vast majority, uses should use rely on [[f-sample]].
+  "Kept public for extreme use cases. For the vast majority, users should rely on [[f-sample]].
   
    Directly samples all flows or a subtree at the given `path`."
 
@@ -1730,16 +1671,17 @@
 (defn f-sample
 
   "Schedules a sample, now or at the given `timevec`, at the `path` of the current flat event or the given one.
-  
-   The way it is scheduled garantees deduplication and that is why it should be used instead of [[f-sample*]].
-   Without deduplication, flows might be sampled more than once for a given timevec which not only is inefficient,
-   it corrupts data if some flows are not idempotent.
 
-   Otherwise, a common scenario leading to duplication would be, for instance, animation. All flows are sampled at
-   each frame in order to draw them accurately. This is done by providing an empty path with leads to the whole flow
-   tree. However, when a flow is created, it needs to be initialized (ie. sampled a first time). this is done by
-   providing a path to that flow, which is of course part of the flow tree. If by chance that flow is created at
-   the same timevec as a frame, it would then be sampled twice."
+   The given `path` need not to point to a specific flow, it can point to a subtree which will then be walked to
+   find all flows. This is more efficient than scheduling a sample for all flows individually. For instance, when
+   drawing an animation frame, one can provide an empty path, which is indeed more efficient and easier than
+   scheduling every single element each frame.
+  
+   The way it works garantees deduplication and that is why it should be used instead of [[f-sample*]]. Without
+   deduplication, flows might be sampled more than once for a given timevec which not only is inefficient, it corrupts
+   data if some flows are not idempotent. Scheduling a sample using this function is always idempotent.
+
+   See also [[f-infinite]]."
 
   ([]
 
@@ -1779,7 +1721,7 @@
 
 (defn- -f-assoc
 
-  ;; Associates a new flow and everything it needs for resuming the queue when it ends.
+  ;; Associates a new flow and everything it needs for resuming the queue later.
 
   ([ctx flow]
 
@@ -1803,11 +1745,11 @@
 
 (defn f-infinite 
 
-  "A flow is akin to an event. While events happens at one particular timevec and have no concept of duration,
+  "A flow is akin to an event. While events happen at one particular timevec and have no concept of duration,
    flows last for an interval of time. They are sampled when needed, decided by the user, by using [[f-sample]].
 
    An \"infinite\" flow is either endless or ends at a moment that is not known in advance (eg. when the context
-   satifies some condition. It can be ended by using `f-end`.
+   satifies some condition not knowing when it will occur). It can be ended using `f-end`.
 
    Here is a simple example of an infinite flow that increments a value and schedules samples itself. In other
    words, that value will be incremented every 500 time units until it is randomly decided to stop:
@@ -1828,9 +1770,9 @@
                event-b)
    ```
    
-   Note that when a flow is created, it saves the rest of the working queue and momentarily stops execution.
-   When it ends, it resumes that queue in order to continue. This designs allows for simply building complex
-   sequences of flows and events, including delays if needed (see [[wq-delay]]) and repetitions (see [[capture]]).i
+   Note that when a flow is created, it saves the rest of the working queue and will resume execution when it is done.
+   This designs allows for simply building complex sequences of flows and events, including delays if needed (see
+   [[wq-delay]]) and repetitions (see [[capture]]).i
   
    When created, a flow is automatically sampled at the same ptime for initialization."
 
@@ -1894,7 +1836,7 @@
 
    Knowing the `duration` means [[f-end]] will be called automatically after that interval of time. Also,
    before each sample, the ptime is linearly normalized to a value between 0 and 1 inclusive. In simpler terms,
-   the value at [::e-flat ::ptime] (returned by [[ptime]]) is a percentage of completion.
+   the value at [::e-flat ::ptime] (also returned by [[ptime]]) is the percentage of completion for that flow.
 
    Samples are automatically scheduled at creation for initialization and at the end for clean-up."
 

@@ -2,13 +2,14 @@
 
   "A ranktree is composed of arbitrary subtrees (regualar nested maps) that are prioritized by arbitrarily nested sorted maps.
   
-   In other words, each leaf is identified first by a vector of ranks (keys of the sorted maps) and then by a path in the
-   unsorted maps. Yet in other words, those are sorted trees which have unsorted trees as leaves.
+   In other words, each leaf is identified first by a vector of ranks (keys of the sorted maps) which provides ordering and then
+   by a path which provides a location in the unsorted maps. Yet in other words, those are sorted trees which have unsorted trees
+   as leaves.
   
    For instance:
 
    ```clojure
-   (def tree-2
+   (def tree
         (sorted-map 0 (sorted-map 1 {:a {:b 42}})
                     5 {:c {:d {:e 24}}}))
 
@@ -18,30 +19,27 @@
                     [:a :b]))
    ```
 
-   It must start with at least one sorted map.
+   A tree must start with at least one sorted map.
 
    The magic is that is it perfectly normal to mix rank vectors of various length. The functions in this namespace automatically
    treat missing ranks as 0 and know how to be smart about it. A lower rank means a higher priority.
 
    ```Clojure
-   (ranktree/assoc tree-2
+   (ranktree/assoc tree
                    [0 1 0 0 0 5]
                    [:possible?]
                    true)
 
    (= 42
-      ;; 
-      (ranktree/get tree-2
+      ;; The [:a :b] leaf has been re-prioritized from [0 1] to [0 1 0 0 0 0]
+      (ranktree/get tree
                     [0 1 0 0 0 0]
                     [:a :b])
-      ;;
-      (ranktree/get tree-2
+      ;; But is still accessible with the ranks we used when inserting it
+      (ranktree/get tree
                     [0 1]
                     [:a :b]))
-
-                
-   ```
-  "
+   ```"
 
   {:author "Adam Helinski"}
 
@@ -69,7 +67,7 @@
 
 (defn tree
 
-  ""
+  "Simply provides a sorted map, reminding that a ranktree always start with at least one sorted map."
 
   []
 
@@ -83,19 +81,16 @@
 
 (defn r+
 
-  "Adds all dimension in `dtimevec` to `timevec`
-  
-   The first dimension in `dtimevec` denoting a ptime cannot be negative as one cannot travel
-   back in time.
+  "Sums the given rank collections which might be of different length.
   
    ```clojure
-   (timevec+ [0 5]
-             [10 10 10])
+   (r+ [0  5]
+       [10 10 10])
 
    [10 15 10]
    ```"
 
-  ;; TODO. Optimize for consecutive 0's ?
+  ;; TODO. Optimize for endings in 0's ?
 
   [ranks-1 ranks-2]
 
@@ -124,7 +119,7 @@
 
 (defn- -assoc-in
 
-  ;;
+  ;; Returns `v` when there is no path.
 
   ([path v]
 
@@ -146,7 +141,7 @@
 
 (defn- -assoc-leaf
 
-  ;;
+  ;; Creates required sorted maps following ranks then associates the leaf.
 
   [[r & rs] path v]
 
@@ -162,25 +157,27 @@
 
 (defn- -bubbling-assoc-leaf
 
-  ;;
+  ;; Like [[-assoc-leaf]], but incorporates a "bubbling" node which needs to be re-prioritized 
 
   [[r & rs] path v bubbling-node]
 
-  (if (empty? rs)
-    (if (= r
-           0)
+  (if (zero? r)
+    (if rs
+      (sorted-map 0 (-bubbling-assoc-leaf rs
+                                          path
+                                          v
+                                          bubbling-node))
       (-assoc-in bubbling-node
                  path
-                 v)
+                 v))
+    (if rs
       (sorted-map 0 bubbling-node
-                  r
-                  (-assoc-in path
-                             v)))
-    (sorted-map r (-bubbling-assoc-leaf rs
-                                        path
-                                        v
-                                        bubbling-node))))
-
+                  r (-assoc-leaf rs
+                                 path
+                                 v))
+      (sorted-map 0 bubbling-node
+                  r (-assoc-in path
+                               v)))))
 
 
 
@@ -209,27 +206,15 @@
                                            [0]
                                            path
                                            v))
-                  :else          (if-some [r-2 (first rs)]
-                                   (if-some [rs-2 (next rs)]
-                                     (if (= r-2
-                                            0)
-                                       (-bubbling-assoc-leaf rs
-                                                             path
-                                                             v
-                                                             node)
-                                       (sorted-map 0   node
-                                                   r-2 (-assoc-leaf rs-2
-                                                                    path
-                                                                    v)))
-                                     (if (= r-2
-                                            0)
-                                       (sorted-map 0 (-assoc-in node
-                                                                path
-                                                                v))
-                                       (sorted-map 0   node
-                                                   r-2 (-assoc-in path
-                                                                  v))))
-                                   ;; TODO. Throw if not map? Clojure's `assoc-in` does not and is cryptic about it.
+                  :else          (if rs
+                                   (if (some? node)
+                                     (-bubbling-assoc-leaf rs
+                                                           path
+                                                           v
+                                                           node)
+                                     (-assoc-leaf rs
+                                                  path
+                                                  v))
                                    (-assoc-in node
                                               path
                                               v))))))

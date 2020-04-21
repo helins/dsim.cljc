@@ -1052,33 +1052,6 @@
 
 
 
-(defn- -exec-ptime
-
-  ;; Executes the first event found in `e-tree`, which we know is the subtree for the given
-  ;; `ptime`.
-  ;;
-  ;; Cf. [[jump-until]]
-
-  [e-handler ctx ptime e-tree]
-
-  (dsim.ranktree/pop-walk* ctx
-                           e-tree
-                           (fn reattach-tree [ctx e-tree-2]
-                             (if e-tree-2
-                               (assoc-in ctx
-                                         [::events
-                                          ptime]
-                                         e-tree-2)
-                               (void/dissoc-in ctx
-                                               [::events
-                                                ptime])))
-                           [ptime]
-                           (partial -exec-e
-                                    e-handler)))
-
-
-
-
 (defn- -validate-ctx-ptime
 
   ;; Throws if ptime of events is <= ptime in ctx.

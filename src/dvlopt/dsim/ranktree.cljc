@@ -3,40 +3,49 @@
   "A ranktree is composed of arbitrary subtrees (regualar nested maps) that are prioritized by arbitrarily nested sorted maps.
   
    In other words, each leaf is identified first by a vector of ranks (keys of the sorted maps) which provides ordering and then
-   by a path which provides a location in the unsorted maps. Yet in other words, those are sorted trees which have unsorted trees
-   as leaves.
-  
+   by a path which provides a location. Yet in other words, those are sorted trees which have unsorted trees as leaves.
+
+   A lower rank means a higher priority, 0 being thus the highest priority.
+
    For instance:
 
    ```clojure
-   (def tree
+   (def rtree
         (sorted-map 0 (sorted-map 1 {:a {:b 42}})
                     5 {:c {:d {:e 24}}}))
 
    (= 42
-      (ranktree/get tree
+      (ranktree/get rtree
                     [0 1]
                     [:a :b]))
+
+   (= (ranktree/pop rtree)
+      [(sorted-map 5 {:c {:d {:e 24}}})
+       [0 1]
+       {:a {:b 42}}])
+
+   ;; => Ordering is respected, we have popped the [:a :b] leaf with ranks [0 1] and left the rest intact
    ```
 
-   A tree must start with at least one sorted map.
+   A ranktree must start with at least one sorted map.
 
    The magic is that is it perfectly normal to mix rank vectors of various length. The functions in this namespace automatically
-   treat missing ranks as 0 and know how to be smart about it. A lower rank means a higher priority.
+   treat missing ranks as 0 and know how to be smart about it.
 
    ```Clojure
-   (ranktree/assoc tree
-                   [0 1 0 0 0 5]
-                   [:possible?]
-                   true)
+   (def rtree-2
+        (ranktree/assoc rtree
+                        [0 1 0 0 0 5]
+                        [:possible?]
+                        true))
 
    (= 42
       ;; The [:a :b] leaf has been re-prioritized from [0 1] to [0 1 0 0 0 0]
-      (ranktree/get tree
+      (ranktree/get tree-2
                     [0 1 0 0 0 0]
                     [:a :b])
-      ;; But is still accessible with the ranks we used when inserting it
-      (ranktree/get tree
+      ;; But is still accessible with the ranks we used when inserting it earlier
+      (ranktree/get tree-2
                     [0 1]
                     [:a :b]))
    ```"
@@ -45,6 +54,11 @@
 
   (:require [clojure.core :as clj]
             [dvlopt.void  :as void])
+  ;;
+  ;; <!> Attention <!>
+  ;; 
+  ;; Code is confusing if one does not remember this.
+  ;;
   (:refer-clojure :exclude [assoc
                             dissoc
                             get
@@ -183,7 +197,7 @@
 
 (defn- -assoc
 
-  ""
+  ;; Cf. [[assoc]]
 
   [tree [r & rs] path v]
 
@@ -224,7 +238,11 @@
 
 (defn assoc
 
-  ""
+  "Associates `v` at `path` which is then prioritized using `ranks`.
+
+   When `path` is not provided, associates directly after the ranks.
+  
+   Cf. Namespace description for an example."
 
   ([tree ranks v]
 
@@ -248,7 +266,9 @@
 
 (defn dissoc
 
-  ""
+  "Dissociates a value located at `path` and prioritized by `ranks`.
+  
+   When `path` is not provided, dissociates everything for the given `ranks`."
 
   ([tree ranks]
 
@@ -274,7 +294,7 @@
 
 (defn- -get
 
-  ;;
+  ;; Cf. [[get]]
 
   [tree [r & rs] path not-found]
 
@@ -301,7 +321,9 @@
 
 (defn get
 
-  ""
+  "Find a value located at `path` that has been prioritized with `ranks`.
+  
+   When path is not provided, returns everything at the given `ranks`."
 
   ([tree ranks]
 
@@ -330,18 +352,18 @@
 
 
 
-(defn pop*
+(defn- -pop
 
   ""
 
-  [node ranks-prefix]
+  [node ranks]
 
   (if (and (map? node)
            (sorted? node))
     (if-some [[k
                node-next] (first node)]
-      (clj/update (pop* node-next
-                        (conj ranks-prefix
+      (clj/update (-pop node-next
+                        (conj ranks
                               k))
                   0
                   (fn rebuild-tree [subtree]
@@ -352,10 +374,10 @@
                       (not-empty (clj/dissoc node
                                              k)))))
       [nil
-       ranks-prefix
+       ranks
        nil])
     [nil
-     ranks-prefix
+     ranks
      node]))
 
 
@@ -363,30 +385,38 @@
 
 (defn pop
 
-  ""
+  "Respecting the ordering of ranks, returns a vector such as:
+  
+   | i | meaning |
+   |---|---|
+   | 0 | tree after popping |
+   | 1 | ranks that led to node |
+   | 2 | popped node at ranks |
+
+   There might be no node to pop, and after popping a empty tree is returned as nil."
 
   [tree]
 
-  (pop* tree
+  (-pop tree
         []))
 
 
 
 
-(defn- -pop-walk
+(defn- -walk-unsorted
 
-  ;;
+  ;; Cf. [[-pop-walk]]
 
   [state ranks path node f]
 
   (if (map? node)
     (reduce-kv (fn deeper [state-2 k node-next]
-                 (-pop-walk state-2
-                            ranks
-                            (conj path
-                                  k)
-                            node-next
-                            f))
+                 (-walk-unsorted state-2
+                                 ranks
+                                 (conj path
+                                       k)
+                                 node-next
+                                 f))
                state
                node)
     (f state
@@ -397,46 +427,41 @@
 
 
 
-(defn pop-walk*
+(defn pop-walk
 
-  ""
+  "Pops the given `tree`, then attaches it to `ctx` by calling (rettach-tree ctx popped-tree).
 
-  [ctx tree reattach-tree ranks-prefix f]
+   Then walks every leaf in the popped node and pass around `ctx` by calling:
+
+   ```clojure
+   (f ctx
+      ranks
+      path
+      leaf)
+   ```
+
+   See also [[pop]]."
+
+  [ctx tree reattach-tree f]
 
   (if (sorted? tree)
     (let [[tree-2
            ranks
-           node]  (pop* tree
-                        ranks-prefix)]
+           node]  (pop tree)]
      (if (nil? node)
        ctx
-       (-pop-walk (reattach-tree ctx
-                                 tree-2)
-                  ranks
-                  []
-                  node
-                  f)))
-    (-pop-walk (reattach-tree ctx
-                              nil)
-               ranks-prefix
-               []
-               tree
-               f)))
-
-
-
-
-(defn pop-walk
-
-  ""
-
-  [ctx tree reattach-tree f]
-
-  (pop-walk* ctx
-             tree
-             reattach-tree
-             []
-             f))
+       (-walk-unsorted (reattach-tree ctx
+                                      tree-2)
+                       ranks
+                       []
+                       node
+                       f)))
+    (-walk-unsorted (reattach-tree ctx
+                                   nil)
+                    []
+                    []
+                    tree
+                    f)))
 
 
 
@@ -486,7 +511,9 @@
 
 (defn update
 
-  ""
+  "Update the value located at `path` and prioritized by `ranks`
+  
+   When `path` is not provided, updates whatever is at the given `ranks`."
 
   ([tree ranks f]
 

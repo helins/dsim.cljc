@@ -10,7 +10,7 @@
 
 
 
-;;;;;;;;;; Handling trees
+;;;;;;;;;; Handling data
 
 
 (defn- -assoc-shortest
@@ -40,7 +40,9 @@
 
 (defn assoc-shortest
 
-  ""
+  ;; Associates `leaf` at `path` only if `path` is shorter than the tree. 
+  ;;
+  ;; Cf. Tests
 
   [hmap [k & ks :as path] leaf]
 
@@ -89,3 +91,20 @@
 ;                           v-2))))
 ;              hmap-1
 ;              hmap-2))
+
+
+
+
+(defn pop-stack
+
+  ;; Given a stack in a map, pops and element and dissociates the stack if it is now empty.
+
+  [hmap k]
+
+  (if-some [stack (not-empty (pop (get hmap
+                                       k)))]
+    (assoc hmap
+           k
+           stack)
+    (dissoc hmap
+            k)))

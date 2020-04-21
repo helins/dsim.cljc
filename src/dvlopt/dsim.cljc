@@ -757,28 +757,15 @@
 ;;;;;;;;;; @[jump]  Moving a context through time
 
 
-(defn- -fn-restore-q-outer
-
-  ;; Used after an inner queue ends executing in order to restore the rest of the outer queue.
-
-  [q-outer]
-
-  (fn restore-q-outer [ctx]
-    (assoc-in ctx
-              [::e-flat
-               ::queue]
-              q-outer)))
-
-
-
-
 (defn- -q-exec
 
-  ;; Executes the given `q`.
+  ;; Executes the given event `q`.
   ;;
   ;; Fugly, but works.
   ;;
-  ;; TODO. Cannot try-catch accross recur... What degree of isolation is needed?
+  ;; MAYBDO. Try-catch at the level of every single event unit.
+  ;;         Less efficient than at the queue level, but allow for tracking the context down
+  ;;         to the last known state. Is it useful though?
 
 
   ([e-handler ctx q]
@@ -799,7 +786,11 @@
                     [(-q-exec e-handler
                               ctx
                               event
-                              (-fn-restore-q-outer q-2))
+                              (fn restore-outer [ctx]
+                                (assoc-in ctx
+                                          [::e-flat
+                                           ::queue]
+                                          q-2)))
                      q-2]
                     (let [ctx-2 (e-handler (assoc-in ctx
                                                      [::e-flat
@@ -850,7 +841,7 @@
 
 (defn- -e-walk
 
-  ;;
+  ;; Walks an event tree and executes events.
 
   [e-handler ctx path node]
 
@@ -938,9 +929,9 @@
 
 
 
-(defn- -throw-ptime-current
+(defn- -throw-time-travel
 
-  ;; Throws if the ptime of events if < ptime in ctx.
+  ;; Throws if the ptime of events if < ptime in ctx, as one cannot travel back in time.
   ;; Used in between executing timevecs.
 
   [e-ptime ptime]
@@ -952,37 +943,34 @@
 
 
 
-(defn- -fn-before-ptime
+(defn- -jump-options
 
-  ;; Returns a function that will be called before each ptime when executing events.
+  ;; Prepares options for any kind of jump.
+  ;;
+  ;; Cf. [[jump-until]]
+  ;;
+  ;; MAYBEDO. ::after-ptime
+  ;;          Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
+  ;;          Would it be really useful to share some state between all events on a per ptime basis?
+  ;;          Or per timevec?
+  ;;          Probably not...
 
   [options]
 
   (let [before-ptime (or (::before-ptime options)
+                         identity)
+        after-ptime  (or (::after-ptime options)
                          identity)]
-    (fn before-ptime-2 [ctx ptime]
-      (-> ctx
-          (assoc ::ptime
-                 ptime)
-          before-ptime))))
-
-
-
-
-(defn- -fn-after-ptime
-
-  ;; Returns a function that will be called after each ptime when executing events.
-  ;;
-  ;; MAYBEDO. Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
-  ;;          Would it be really useful to share some state between all events on a per ptime basis?
-
-  [options]
-
-  (let [after-ptime (or (::after-ptime options)
-                        identity)]
-    (fn after-ptime-2 [ctx]
-      (after-ptime (dissoc ctx
-                           ::e-flat)))))
+    {::before-ptime (fn before-ptime-2 [ctx ptime]
+                      (before-ptime (assoc ctx
+                                           ::ptime
+                                           ptime)))
+     ::after-ptime  (fn after-ptime-2 [ctx]
+                      (after-ptime (dissoc ctx
+                                           ::e-flat)))
+     ::e-handler    (or (::e-handler options)
+                        (fn f-handler [ctx f]
+                          (f ctx)))}))
 
 
 
@@ -1001,7 +989,7 @@
 
 
 
-(defn- -remove-e-handler
+(defn- -dissoc-e-handler
 
   ;; The event handler provided by the user (typically the result of [[op-applier]], if any, needs
   ;; to figure in the ctx metadata. Everytime a ctx is returned to the user after some jump, it must
@@ -1016,17 +1004,6 @@
              (fn clean-e-handler [mta]
                (not-empty (dissoc mta
                                   ::e-handler)))))
-
-
-
-
-(defn- -e-handler-f
-
-  ;; Default event handler. Presumes that the event unit is a function.
-
-  [ctx f]
-
-  (f ctx))
 
 
 
@@ -1062,9 +1039,8 @@
            ptime)         (recur ctx-2
                                  ptime
                                  e-tree-next)
-        :else             (throw (ex-info "Ptime of enqueued events is < current ptime"
-                                          {::e-ptime ptime-next
-                                           ::ptime   ptime}))))))
+        :else             (-throw-time-travel ptime-next
+                                              ptime)))))
 
 
 
@@ -1115,10 +1091,9 @@
        (or (pred ctx
                  nil
                  e-ptime)
-           (let [e-handler    (or (::e-handler options)
-                                  -e-handler-f)
-                 before-ptime (-fn-before-ptime options)
-                 after-ptime  (-fn-after-ptime options)]
+           (let [options-2    (-jump-options options)
+                 before-ptime (::before-ptime options-2)
+                 e-handler    (::e-handler options-2)]
              (-> ctx
                  (vary-meta assoc
                             ::e-handler
@@ -1129,8 +1104,8 @@
                               pred
                               e-handler
                               before-ptime
-                              after-ptime)
-                 -remove-e-handler)))
+                              (::after-ptime options-2))
+                 -dissoc-e-handler)))
        ctx))))
 
 
@@ -1224,7 +1199,7 @@
                               nil)
       (> ptime-next
          ptime)         (let [ctx-3 (after-ptime ctx-2)]
-                          (cons (-remove-e-handler ctx-3)
+                          (cons (-dissoc-e-handler ctx-3)
                                 (lazy-seq
                                   (-history (before-ptime ctx-3
                                                           ptime-next)
@@ -1240,8 +1215,8 @@
                                e-handler
                                before-ptime
                                after-ptime)
-      :else             (-throw-ptime-current ptime-next
-                                              ptime))))
+      :else             (-throw-time-travel ptime-next
+                                            ptime))))
 
 
 
@@ -1269,10 +1244,10 @@
                   e-tree] (first (::events ctx))]
        (-validate-ctx-ptime ctx
                             e-ptime)
-       (let [before-ptime (-fn-before-ptime options)
-             after-ptime  (-fn-after-ptime options)
-             e-handler    (or (::e-handler options)
-                              -e-handler-f)]
+       (let [options-2    (-jump-options options)
+             before-ptime (::before-ptime options-2)
+             after-ptime  (::after-ptime options-2)
+             e-handler    (::e-handler options-2)]
          (-history (-> ctx
                        (vary-meta assoc
                                   ::e-handler
@@ -1580,23 +1555,6 @@
 
 
 
-(defn- -pop-stack
-
-  ;; Given a stack in a map, pops and element and dissociates the stack if it is now empty.
-
-  [hmap k]
-
-  (if-some [stack (not-empty (pop (get hmap
-                                       k)))]
-    (assoc hmap
-           k
-           stack)
-    (dissoc hmap
-            k)))
-
-
-
-
 (defn wq-replay
 
   "When `pred?` returns true after being called with the current `ctx`, replays the last queue captured using
@@ -1617,8 +1575,8 @@
      (-replay-captured ctx)
      (wq-vary-meta ctx
                    (fn release-captured [mta]
-                     (-pop-stack mta
-                                 ::captured))))))
+                     (dsim.util/pop-stack mta
+                                          ::captured))))))
 
 
 
@@ -1655,8 +1613,8 @@
        (wq-vary-meta ctx
                      (fn clean-state [mta]
                        (-> mta
-                           (-pop-stack ::captured)
-                           (-pop-stack ::sreplay))))))))
+                           (dsim.util/pop-stack ::captured)
+                           (dsim.util/pop-stack ::sreplay))))))))
 
 
 

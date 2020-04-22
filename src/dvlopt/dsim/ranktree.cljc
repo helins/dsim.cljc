@@ -1,6 +1,9 @@
 (ns dvlopt.dsim.ranktree
 
-  "A ranktree is composed of arbitrary subtrees (regualar nested maps) that are prioritized by arbitrarily nested sorted maps.
+  "In DSim, ranktrees are used as event trees. This namespace is only useful if the user needs to extend some functionalities
+   or has a deeper interest in the library.
+  
+   A ranktree is composed of arbitrary subtrees (regualar nested maps) that are prioritized by arbitrarily nested sorted maps.
   
    In other words, each leaf is identified first by a vector of ranks (keys of the sorted maps) which provides ordering and then
    by a path which provides a location. Yet in other words, those are sorted trees which have unsorted trees as leaves.

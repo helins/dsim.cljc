@@ -227,7 +227,7 @@
 
 
 
-(def timevec
+(def ranks
 
   [1000])
 
@@ -252,10 +252,10 @@
 
   (t/is (= event
            (dsim/e-get (dsim/e-assoc {}
-                                     timevec
+                                     ranks
                                      path
                                      event)
-                       timevec
+                       ranks
                        path))
         "In the event tree"))
 
@@ -278,36 +278,36 @@
 
     (t/is (= q
              (dsim/e-get (-> {}
-                             (dsim/e-assoc timevec
+                             (dsim/e-assoc ranks
                                            path
                                            event)
-                             (dsim/e-conj timevec
+                             (dsim/e-conj ranks
                                           path
                                           event))
-                         timevec
+                         ranks
                          path))
           "In the event tree to a function")
 
 
     (t/is (= q
              (dsim/e-get (-> {}
-                             (dsim/e-assoc timevec
+                             (dsim/e-assoc ranks
                                            path
                                            (dsim/queue event))
-                             (dsim/e-conj timevec
+                             (dsim/e-conj ranks
                                           path
                                           event))
-                         timevec
+                         ranks
                          path))
           "In the event tree to a queue"))
 
 
   (t/is (= (dsim/queue event)
            (dsim/e-get (dsim/e-conj {}
-                                    timevec
+                                    ranks
                                     path
                                     event)
-                       timevec
+                       ranks
                        path))
         "In the event tree to nil"))
 
@@ -342,10 +342,10 @@
                                   events)
                             mta-2)
                  (dsim/e-get (dsim/e-into {}
-                                          timevec
+                                          ranks
                                           path
                                           events)
-                             timevec
+                             ranks
                              path))
           "In the event tree to nil")
 
@@ -355,26 +355,26 @@
                                         event)
                             mta-2)
                  (dsim/e-get (-> {}
-                                 (dsim/e-assoc timevec
+                                 (dsim/e-assoc ranks
                                                path
                                                event)
-                                 (dsim/e-into timevec
+                                 (dsim/e-into ranks
                                               path
                                               events))
-                             timevec
+                             ranks
                              path))
           "In the event tree to a function")
 
 
     (t/is (full= q-target
                  (dsim/e-get (-> {}
-                                 (dsim/e-assoc timevec
+                                 (dsim/e-assoc ranks
                                                path
                                                q)
-                                 (dsim/e-into timevec
+                                 (dsim/e-into ranks
                                               path
                                               events))
-                             timevec
+                             ranks
                              path))
           "In the event tree to a queue")))
 
@@ -394,12 +394,12 @@
 
     (t/is (= q-2
              (dsim/e-get (dsim/e-isolate (dsim/e-assoc {}
-                                                       timevec
+                                                       ranks
                                                        path
                                                        q-1)
-                                         timevec
+                                         ranks
                                          path)
-                         timevec
+                         ranks
                          path))
           "In the event tree")))
 
@@ -432,10 +432,10 @@
 
     (t/is (full= events
                  (dsim/e-get (dsim/e-into {}
-                                          timevec
+                                          ranks
                                           path
                                           events)
-                             timevec
+                             ranks
                              path))
           "In the event tree to nil")
 
@@ -443,57 +443,28 @@
     (t/is (full= (conj events
                        event)
                  (dsim/e-get (-> {}
-                                 (dsim/e-assoc timevec
+                                 (dsim/e-assoc ranks
                                                path
                                                event)
-                                 (dsim/e-into timevec
+                                 (dsim/e-into ranks
                                               path
                                               events))
-                             timevec
+                             ranks
                              path))
           "In the event tree to a function")
 
 
     (t/is (full= q-target
                  (dsim/e-get (-> {}
-                                 (dsim/e-assoc timevec
+                                 (dsim/e-assoc ranks
                                                path
                                                q)
-                                 (dsim/e-into timevec
+                                 (dsim/e-into ranks
                                               path
                                               events))
-                             timevec
+                             ranks
                              path))
           "In the event tree to a queue")))
-
-
-
-
-;;;;;;;;;; Timevecs
-
-
-(t/deftest timevec+
-
-  (t/is (= [1 1 1]
-           (dsim/timevec+ [0 0 0]
-                          [1 1 1]))
-        "Same number of dimensions")
-
-  (t/is (= [1 1 1]
-           (dsim/timevec+ [0 0]
-                          [1 1 1]))
-        "Dtimevec has more dimensions")
-
-  (t/is (= [1 1 1]
-           (dsim/timevec+ [0 0 1]
-                          [1 1 0]))
-        "Timevec has more dimensions")
-
-  (t/is (thrown? #?(:clj  Throwable
-                    :cljs js/Error)
-                 (dsim/timevec+ [0 0 0]
-                                [-1]))
-        "Adding a negative ptime will throw"))
 
 
 
@@ -724,9 +695,9 @@
 
 (t/deftest wq-delay
 
-  ;; Tests `wq-timevec+` as well.
+  ;; Tests `wq-ptime+` as well.
 
-  (let [delay-1u    (dsim/wq-delay (dsim/wq-timevec+ [1]))
+  (let [delay-1u    (dsim/wq-delay (dsim/wq-ptime+ 1))
         h           (history-DE (dsim/e-assoc (ctx-init 0)
                                               [1]
                                               [:n]
@@ -735,7 +706,7 @@
                                                           event-inc
                                                           delay-1u
                                                           event-inc)))
-        op-delay-1u [::dsim/delay [::dsim/timevec+ [1]]]]
+        op-delay-1u [::dsim/delay [::dsim/ptime+ 1]]]
 
     (t/is (= 3
              (count h))
@@ -822,7 +793,7 @@
                                      [:n]
                                      (dsim/queue dsim/wq-capture
                                                  event-inc
-                                                 (dsim/wq-delay (dsim/wq-timevec+ [1]))
+                                                 (dsim/wq-delay (dsim/wq-ptime+ 1))
                                                  (dsim/wq-replay pred?))))]
       (t/is (= 11
                (count h))
@@ -838,7 +809,7 @@
                                              [:n]
                                              (dsim/queue [::dsim/capture]
                                                          [::inc]
-                                                         [::dsim/delay [::dsim/timevec+ [1]]]
+                                                         [::dsim/delay [::dsim/ptime+ 1]]
                                                          [::dsim/replay [::pred? n]])))))))
 
 
@@ -905,8 +876,8 @@
                                                                          path)
                                                                  n)
                                                             (dsim/f-sample ctx-2
-                                                                           (dsim/wq-timevec+ ctx-2
-                                                                                             [1]))
+                                                                           (dsim/wq-ptime+ ctx-2
+                                                                                           1))
                                                             (dsim/f-end ctx-2)))))))
         end (last h)]
 
@@ -923,9 +894,9 @@
 
 
 
-(def timevec+1
+(def ptime+1
 
-  (dsim/wq-timevec+ [1]))
+  (dsim/wq-ptime+ 1))
 
 
 
@@ -939,7 +910,7 @@
         h   (history-DE (dsim/e-conj (ctx-init 0)
                                      [0]
                                      [:n]
-                                     (dsim/f-sampled timevec+1
+                                     (dsim/f-sampled ptime+1
                                                      (dec n)
                                                      (fn flow [ctx]
                                                        (update-in ctx
@@ -962,13 +933,13 @@
                                    [0]
                                    [:writer]
                                    (dsim/queue dsim/wq-capture
-                                               (dsim/f-sampled timevec+1
+                                               (dsim/f-sampled ptime+1
                                                                2
                                                                (event-writer :a))
                                                (dsim/f-infinite (fn flow [ctx]
                                                                   (dsim/f-end ((event-writer :b) ctx))))
-                                               (dsim/wq-delay timevec+1)
-                                               (dsim/f-sampled timevec+1
+                                               (dsim/wq-delay ptime+1)
+                                               (dsim/f-sampled ptime+1
                                                                1
                                                                (event-writer :c))
                                                (dsim/wq-sreplay dsim/wq-pred-repeat

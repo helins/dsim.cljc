@@ -22,8 +22,7 @@
 ;; @[scale]       Scaling numerical values
 ;; @[ctx]         Generalities about contextes
 ;; @[events]      Adding, removing, and modifying events
-;; @[timevecs]    Handling timevecs
-;; @[jump]        Moving a context through time
+;; @[ngin]        Building time-based event engines
 ;; @[wq]          Relative to the currently executed queue (aka. the "working queue")
 ;; @[op]          Operation handling
 ;; @[flows]       Creating and managing flows
@@ -41,9 +40,9 @@
 ;;  hand, it is fairly certain the implementation will stay like this.
 
 
-;;  Parallelize by timevec?
+;;  Parallelize by ranks?
 ;;
-;;  By definition, all events for a given timevec are independent, meaning that they
+;;  By definition, all events with the same ranking  are independent, meaning that they
 ;;  can be parallelized without a doubt if needed.
 
 
@@ -146,10 +145,10 @@
   
   "Linear scaling of numerical values.
 
-   Arity 3: scales a `percent` value to be between `min-v` and (+ `min-v` `interval`) inclusive.
-
-   Arity 5: scales `v`, between `min-v` and (+ `min-v` `interval`), to be between `scaled-min`v and
-            (+ `scaled-min-v` `scaled-interval`) inclusive.
+   | Arity | Means |
+   |---|---|
+   | 3 | Scales a `percent` value to be between `min-v` and (+ `min-v` `interval`) inclusive. &
+   | 5 | Scales `v`, between `min-v` and (+ `min-v` `interval`), to be between `scaled-min`v and (+ `scaled-min-v` `scaled-interval`) inclusive. |
 
    ```clojure
    (scale 200
@@ -213,16 +212,27 @@
 
 (defn f-path
 
-  "Returns a new path locating the given one in the flow tree, as a sequence."
+  "All flows are kept as a tree in the context. It is useful to be able to locate them
+   if some state specific to a flow need to be maintained. Indeed, each flow is kept in a
+   map which contains elements needed to handle it. This map is removed when the flow ends,
+   meaning that whatever the user kept there for the duration of the flow will be properly
+   garbage collected when the flow ends.
+
+   | Arity | Means |
+   |---|---|
+   | 0 | Returns path to the root of the tree (ie. all flows) |
+   | 1 | Locates `path` in the flow tree |
+  
+   See also [[f-infinite]]."
 
   ([]
 
-   ::flows)
+   [::flows])
 
 
   ([path]
 
-   (cons (f-path)
+   (into (f-path)
          path)))
 
 
@@ -230,7 +240,7 @@
 
 (defn flowing?
 
-  "Is the given context or some part of it currently in transition?"
+  "Is the given context or some part of it currently flowing?"
 
   ([ctx]
 
@@ -295,7 +305,7 @@
 
 (defn scheduled?
 
-  "Is there anything scheduled at all or for a given timevec?"
+  "Is there anything scheduled at all or for the given `ranks`?"
 
   ([ctx]
 
@@ -303,22 +313,22 @@
                      ::events))))
 
 
-  ([ctx timevec]
+  ([ctx ranks]
 
    (not (empty? (get-in ctx
                         [::events
-                         timevec])))))
+                         ranks])))))
 
 
 
 
-(defn timevec
+(defn ranks
 
-  "Returns the timevec at [::e-flat ::timevec]."
+  "Returns the ranks at [::e-flat ::ranks]."
 
   [ctx]
 
-  (::timevec (::e-flat ctx)))
+  (::ranks (::e-flat ctx)))
 
 
 
@@ -330,50 +340,33 @@
 
   ;; For errors occuring when modifying the event tree.
 
-  [ctx timevec path msg]
+  [ctx ranks path msg]
 
   (throw (ex-info msg
-                  {::ctx     ctx
-                   ::timevec timevec
-                   ::path    path})))
-
-
-
-
-
-
-
-
-
-(defn- -e-valid
-
-  ;; Safe guard, throws if an event is empty.
-
-  [event]
-
-  
-  event)
+                  {::ctx   ctx
+                   ::path  path
+                   ::ranks ranks})))
 
 
 
 
 (defn e-assoc
 
-  "Schedule an `event`.
+  "Schedules an `event`.
   
+   Arities for `e-XXX` functions follow the same convention. Providing both `ranks` and `path` refers explicitely
+   to a prioritized location in the event tree. Without `path`, the path of the currently executing flat event is
+   retrieved (ie. acts with the given `ranks` relative to the current path). Not providing either refers explicitely
+   to the current flat event and its working queue.
 
-   Arity 2: Replaces the current working queue.
-  
-   Arity 3: Schedules the `event` in the event tree for the given `timevec` and path returned by [[path]].
-  
-   Arity 4: Full control of when and where in the event tree.
-  
+   Thus:
 
-   Such arities are common when it comes to `e-XXX` functions, where providing providing both a `timevec`
-   and a `path` refers explicitly to the event tree. Providing only the `timevec` also, but the `path` is
-   retrieved in ::e-flat. Providing neither explicitely refers to the current working queue, hence will not work
-   as intended when a queue is not being executed.
-
+   | Arity | Means |
+   |---|---|
+   | 2 | Replaces the current working queue with the given `event`. |
+   | 3 | Schedules the `event` in the event tree for the given `ranks` and path returned by [[path]]. |
+   | 4 | Full control of when and where in the event tree. |
+  
    It is bad practice to associate something such as an empty queue. It means that \"nothing\" is unnecessarily
    scheduled."
 
@@ -387,21 +380,21 @@
                (queue event))))
 
 
-  ([ctx timevec event]
+  ([ctx ranks event]
 
    (e-assoc ctx
-            timevec
+            ranks
             (path ctx)
             event))
 
 
-  ([ctx timevec path event]
+  ([ctx ranks path event]
 
    (update ctx
            ::events
            (fnil dsim.ranktree/assoc
                  (dsim.ranktree/tree))
-           timevec
+           ranks
            path
            event)))
 
@@ -427,18 +420,18 @@
                      event))))
 
 
-  ([ctx timevec event]
+  ([ctx ranks event]
 
    (e-conj ctx
-           timevec
+           ranks
            (path ctx)
            event))
 
 
-  ([ctx timevec path event]
+  ([ctx ranks path event]
 
    (e-update ctx
-             timevec
+             ranks
              path
              (fn -e-conj [node]
                (cond
@@ -448,7 +441,7 @@
                  (queue? node) (conj node
                                      event)
                  :else         (-throw-e-mod ctx
-                                             timevec
+                                             ranks
                                              path
                                              "Can only `e-conj` to nil or an event"))))))
 
@@ -457,11 +450,12 @@
 
 (defn e-dissoc
   
-  "Cancel a scheduled event.
-  
-   Arity 1: Removes the current working queue.
-  
-   Arity 3: Remove the event located at `timevec` and `path` in the event tree."
+  "Cancels a scheduled event.
+
+   | Arity | Means |
+   |---|---|
+   | 1 | Removes the current working queue. |
+   | 3 | Remove the event located at `ranks` and `path` in the event tree. |"
 
   ([ctx]
 
@@ -471,13 +465,13 @@
            ::queue))
 
 
-  ([ctx timevec path]
+  ([ctx ranks path]
 
    (void/update ctx
                 ::events
                 (fn -e-dissoc [events]
                   (some-> events
-                          (dsim.ranktree/dissoc timevec
+                          (dsim.ranktree/dissoc ranks
                                                 path))))))
 
 
@@ -501,18 +495,18 @@
                      events))))
 
 
-  ([ctx timevec events]
+  ([ctx ranks events]
 
    (e-into ctx
-           timevec
+           ranks
            (path ctx)
            events))
 
 
-  ([ctx timevec path events]
+  ([ctx ranks path events]
 
    (e-update ctx
-             timevec
+             ranks
              path
              (fn -e-into [node]
                (cond
@@ -529,7 +523,7 @@
                                                 (meta events))
                                      events)
                  :else         (-throw-e-mod ctx
-                                             timevec
+                                             ranks
                                              path
                                              "Can only `e-into` to nil or an event"))))))
 
@@ -540,9 +534,11 @@
 
   "Retrieves a scheduled event.
   
-   Arity 1: Returns the current working queue.
 
-   Arity 3: Returns the event located at `timevec` and `path` in the event tree."
+   | Arity | Means |
+   |---|---|
+   | 1 | Returns the current working queue. |
+   | 3 | Returns the event located `path` and prioritized by `ranks` in the event tree. |"
 
   ([ctx]
 
@@ -558,18 +554,18 @@
            not-found))
 
 
-  ([ctx timevec path]
+  ([ctx ranks path]
 
    (e-get ctx
-          timevec
+          ranks
           path
           nil))
 
 
-  ([ctx timevec path not-found]
+  ([ctx ranks path not-found]
 
    (dsim.ranktree/get (::events ctx)
-                      timevec
+                      ranks
                       path
                       not-found)))
 
@@ -592,17 +588,17 @@
                  (queue q)))))
 
 
-  ([ctx timevec]
+  ([ctx ranks]
 
    (e-isolate ctx
-              timevec
+              ranks
               (path ctx)))
 
 
-  ([ctx timevec path]
+  ([ctx ranks path]
 
    (e-update ctx
-             timevec
+             ranks
              path
              (fn -e-isolate [event]
                (some-> event
@@ -626,18 +622,18 @@
                      q-old))))
            
 
-  ([ctx timevec q]
+  ([ctx ranks q]
 
    (e-push ctx
-           timevec
+           ranks
            (path ctx)
            q))
 
 
-  ([ctx timevec path q]
+  ([ctx ranks path q]
 
    (e-update ctx
-             timevec
+             ranks
              path
              (fn -e-push [node]
                (cond
@@ -650,7 +646,7 @@
                                                 (meta node))
                                      node)
                  :else         (-throw-e-mod ctx
-                                             timevec
+                                             ranks
                                              path
                                              "Can only `e-push` to nil or an event"))))))
 
@@ -662,10 +658,10 @@
   "Seldom used by the user, often used by other `e-XXX` functions.
   
    Works like standard `update` but tailored for the current working queue or the event tree.
+   
+   Returnin nil will whatever is at that location.
   
-   Arities follow similar convention as [[e-assoc]].
-  
-   "
+   Arities follow similar convention as [[e-assoc]]."
 
   ([ctx f]
 
@@ -679,79 +675,27 @@
                      (f wq))))
 
 
-  ([ctx timevec f]
+  ([ctx ranks f]
 
    (e-update ctx
-             timevec
+             ranks
              (path ctx)
              f))
 
-  ([ctx timevec path f]
+  ([ctx ranks path f]
 
    (void/update ctx
                 ::events
                 (fnil dsim.ranktree/update
                       (dsim.ranktree/tree))
-                timevec
+                ranks
                 path
                 f)))
 
 
 
 
-;;;;;;;;;; @[timevecs]  Handling timevecs
-
-
-(defn timevec+
-
-  "Adds all dimension in `dtimevec` to `timevec`
-  
-   The first dimension in `dtimevec` denoting a ptime cannot be negative as one cannot travel
-   back in time.
-  
-   ```clojure
-   (timevec+ [0 5]
-             [10 10 10])
-
-   [10 15 10]
-   ```"
-
-  [timevec dtimevec]
-
-  (when (some-> (first dtimevec)
-                neg?)
-    (throw (ex-info "Cannot add negative time interval to timevec"
-                   {::dtimevec dtimevec
-                    ::timevec  timevec})))
-  (dsim.ranktree/r+ timevec
-                    dtimevec))
-
-
-
-
-(defn wq-timevec+
-
-  "Like [[timevec+]] but fetches the timevec from the `ctx`.
-  
-   Not providing the `ctx` returns a function ctx -> timevec (often useful for function
-   such as [[wq-delay]]."
-
-  ([dtimevec]
-
-   (fn ctx->timevec [ctx]
-     (wq-timevec+ ctx
-                  dtimevec)))
-
-
-  ([ctx dtimevec]
-
-   (timevec+ (timevec ctx)
-             dtimevec)))
-
-
-
-
-;;;;;;;;;; @[jump]  Moving a context through time
+;;;;;;;;;; @[ngin]  Building time-based event engines
 
 
 (defn- -exec-q
@@ -848,14 +792,14 @@
      (-exec-q e-handler
               (assoc ctx
                      ::e-flat
-                     {::path    path
-                      ::timevec ranks})
+                     {::path  path
+                      ::ranks ranks})
               event)
      (let [ctx-2 (e-handler (assoc ctx
                                    ::e-flat
-                                   {::path    path
-                                    ::queue   (queue)
-                                    ::timevec ranks})
+                                   {::path  path
+                                    ::queue (queue)
+                                    ::ranks ranks})
                             event)
            wq    (e-get ctx)]
        (if (empty? wq)
@@ -897,12 +841,12 @@
                      \"Prepares context for running\")
                      
     ::period-end   (fn [ctx]
-                     \"Does so clean-up in the context\")
+                     \"Does some clean-up in the context\")
     ::run          (fn
                      ([ctx]
-                      \"Pops and run the next ranked event subtree\")
+                      \"Pops and runs the next ranked event subtree\")
                      ([ctx events]
-                      \"Ditto, but uses directly the given events (useful for some optimizations)\"))}
+                      \"Ditto, but uses directly the given events (only useful for some optimizations)\"))}
    ```
    
    An engine, if it detects that events need to be processed, must call ::period-start. It can then call
@@ -1005,7 +949,7 @@
   ;; MAYBEDO. ::after
   ;;          Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
   ;;          Would it be really useful to share some state between all events on a per ptime basis?
-  ;;          Or per timevec?
+  ;;          Or per ranks?
   ;;          Probably not...
 
 
@@ -1131,7 +1075,7 @@
           event-a
           wq-capture
           event-b
-          (wq-delay (wq-timevec+ [100]))
+          (wq-delay (wq-ptime+ 100))
           (wq-sreplay wq-pred-repeat
                       1)
           event-c
@@ -1142,12 +1086,12 @@
 
    (queue event-a
           event-b
-          (wq-delay (wq-timevec+ [100]))
+          (wq-delay (wq-ptime+ 100))
           event-b
           event-c
           event-a
           event-b
-          (wq-delay (wq-timevec+ [100]))
+          (wq-delay (wq-ptime+ 100))
           event-b
           event-c)
    ```"
@@ -1180,24 +1124,23 @@
 
 (defn wq-copy
 
-  "Copies the current working queue to a future timevec in the event tree.
+  "Copies the current working queue to the computed `ranks` in the event tree on the same path.
   
    Because this is Clojure, the queue is not actually copied as it is immutable.
 
-   Unless something more sophisticated is needed, `ctx->timevec` will often be the result of [[wq-timevec+]].
-   For instance, scheduling for 500 time units from now."
+   Unless something more sophisticated is needed, `ctx->ranks` will often be the result of [[wq-ptime+]]."
 
-  ([ctx->timevec]
+  ([ctx->ranks]
 
    (fn event [ctx]
      (wq-copy ctx
-               ctx->timevec)))
+               ctx->ranks)))
 
 
-  ([ctx ctx->timevec]
+  ([ctx ctx->ranks]
 
    (e-conj ctx
-           (ctx->timevec ctx)
+           (ctx->ranks ctx)
            (e-get ctx))))
 
 
@@ -1205,21 +1148,48 @@
 
 (defn wq-delay
 
-  "Moves the rest of the working queue to a future timevec in the event tree.
+  "Moves the rest of the working queue to the computed ranks in the event tree.
+
+   For instance, inducing a 500 time units delay between 2 events:
+
+   ```clojure
+   (queue event-a
+          (wq-delay (wq-ptime+ 500))
+          event-b)
+   ```
+   
+   Particularly useful for modelling activities (sequences of events dispatched in time, using an [[engine-ptime]]).
+   Knowing that several events logically bound together at the same path have to be scheduled at different ptimes, one
+   approach would be to schedule all of them in one go, eargerly. However, that could quickly lead to the event tree
+   becoming big in more complex scenarios. More importantly, if an earlier event fails (eg. `event-a`), future one
+   (eg. `event-b`) are already scheduled and will execute.
+
+   By using this function, both problems are solved. All events are part of the same queue, which makes sense, and
+   delays reschedule the rest of the queue when needed. An event failing means the queue fails, so the activity stops.
+
+   An example of an activity, a customer in a bank, assuming some sort of random delays being provided:
+
+   ```
+   (queue customer-arrives
+          (wq-delay ...)
+          customer-handled
+          (wq-delay ...)
+          customer-leaves)
+   ``` 
   
    See also [[wq-copy]]."
 
-  ([ctx->timevec]
+  ([ctx->ranks]
 
    (fn event [ctx]
      (wq-delay ctx
-                ctx->timevec)))
+                ctx->ranks)))
 
 
-  ([ctx ctx->timevec]
+  ([ctx ctx->ranks]
   
    (e-dissoc (wq-copy ctx
-                      ctx->timevec))))
+                      ctx->ranks))))
 
 
 
@@ -1284,10 +1254,13 @@
 
 (defn wq-mirror
 
-  "Many discrete events are typically interested in two things: the path they work on and the current ptime.
+  "Many discrete events and flows are typically interested in two things: the path they work on and the current
+   ptime (ie. the first rank in their ranks, using [[engine-ptime]]).
   
    Turns `f` into a regular event which accepts a `ctx`. Underneath, calls (f ctx data-at-path current-ptime).
-   The result is automatically associated in the `ctx` at the same path."
+   The result is automatically associated in the `ctx` at the same path.
+  
+   Notably useful for [[f-finite]] and [[f-sampled]]."
 
   ([f]
 
@@ -1342,10 +1315,38 @@
 
 
 
+(defn wq-ptime+
+
+  "Produces a function ctx -> ranks, useful for other `wq-XXX` functions such as [[wq-delay]].
+
+   Fetches the ranks of the current flat event and updates its ptime by adding `ptime+`.
+
+   Throws if `ptime+` < 0, as time travel is forbidden."
+
+  ([ptime+]
+
+   (fn ctx->ranks [ctx]
+     (wq-ptime+ ctx
+                ptime+)))
+
+
+  ([ctx ptime+]
+
+   (when (neg? ptime+)
+     (throw (ex-info "Cannot add negative ptime to current ranks"
+                     {::ctx    ctx
+                      ::ptime+ ptime})))
+   (update (ranks ctx)
+           0
+           +
+           ptime+)))
+
+
+
 
 (defn wq-replay
 
-  "When `pred?` returns true after being called with the current `ctx`, replays the last queue captured using
+  "When `pred?` returns true after being called with the current `ctx`, replays the last queue captured by 
    [[wq-capture]].
   
    When it returns a falsy value, that last captured queue is removed."
@@ -1452,7 +1453,11 @@
    `k->f` is a map keyword -> event function. The resulting event handler will use it to find the appropriate
    event function and apply to it arguments from the `operation`.
 
-   See [[op-std]] for a map of event function automatically injected."
+   See [[op-std]] for a map of event function automatically injected.
+  
+  
+   The user is free to follow any other format and make its own event handler if needed. The only rule
+   is that an event cannot be represented as a map."
 
   [k->f]
 
@@ -1478,7 +1483,7 @@
 
 (defn op-exec
 
-  "During a jump (see [[jump-until]] or [[history]]), can be called within an event in order the execute
+  "During a run (see [[engine]] or and [[engine-ptime]]), can be called within an event in order the execute
    the given `op`.
   
    See also [[op-applier]]."
@@ -1508,9 +1513,9 @@
    :dvlopt.dsim/exec
    :dvlopt.dsim/mirror
    :dvlopt.dsim/pred-repeat
+   :dvlopt.dsim/ptime+
    :dvlopt.dsim/replay
    :dvlopt.dsim/sreplay
-   :dvlopt.dsim/timevec+
    ```
 
    There are meant to mimick normal function calls. For instance, assuming ::event-a and
@@ -1519,7 +1524,7 @@
    ```clojure
    (queue [:dvlopt.dsim/capture]
           [::event-a
-          [:dvlopt.dsim/delay [:dvlopt.dsim/timevec+ [100]]]
+          [:dvlopt.dsim/delay [:dvlopt.dsim/ptime+ [100]]]
           [::event-b 42 :some-arg]
           [:dvlopt.dsim/sreplay [:dvlopt.dsim/pred-repeat]
                                 2])
@@ -1528,7 +1533,7 @@
 
    (queue wq-capture
           event-a
-          (wq-delay (wq-timevec+ [100]))
+          (wq-delay (wq-ptime+ 100))
           event-b
           (wq-sreplay wq-pred-repeat
                       2))
@@ -1540,11 +1545,11 @@
                                  (op-exec ctx
                                           op-pred?))))
    ::capture     wq-capture
-   ::delay       (fn event [ctx op-ctx->timevec]
+   ::delay       (fn event [ctx op-ctx->ranks]
                    (wq-delay ctx
-                             (fn ctx->timevec [ctx]
+                             (fn ctx->ranks [ctx]
                                (op-exec ctx
-                                        op-ctx->timevec))))
+                                        op-ctx->ranks))))
    ::do!         (fn event [ctx op-side-effect]
                    (wq-do! ctx
                            (fn side-effect-2 [ctx]
@@ -1558,6 +1563,7 @@
                                          (conj op-mirror
                                                ptime)))))
    ::pred-repeat wq-pred-repeat
+   ::ptime+      wq-ptime+
    ::replay      (fn event [ctx op-pred?]
                    (wq-replay ctx
                               (fn pred? [ctx]
@@ -1570,7 +1576,7 @@
                                           (conj op-pred
                                                 state)))
                                seed))
-   ::timevec+    wq-timevec+})
+   })
 
 
 
@@ -1610,10 +1616,10 @@
       (-exec-q (::e-handler (meta ctx-2))
                (assoc-in ctx-2
                          [::e-flat
-                          ::timevec]
-                         (assoc (::timevec-init flow-leaf)
+                          ::ranks]
+                         (assoc (::ranks-init flow-leaf)
                                 0
-                                (first (timevec ctx-2))))
+                                (first (ranks ctx-2))))
                q)
       ctx-2)))
 
@@ -1629,10 +1635,10 @@
   (or (void/call (::flow node)
                  (assoc ctx
                         ::e-flat
-                        {::path    path
-                         ::timevec (assoc (::timevec-init node)
-                                          0
-                                          ptime)}))
+                        {::path  path
+                         ::ranks (assoc (::ranks-init node)
+                                         0
+                                         ptime)}))
       (reduce-kv (fn deeper [ctx-2 k node-next]
                    (-f-sample* ctx
                                ptime
@@ -1660,7 +1666,7 @@
   ([ctx path]
 
    (-f-sample* (e-dissoc ctx)
-               (first (timevec ctx))
+               (first (ranks ctx))
                path
                (get-in ctx
                        (f-path path)))))
@@ -1670,7 +1676,7 @@
 
 (defn f-sample
 
-  "Schedules a sample, now or at the given `timevec`, at the `path` of the current flat event or the given one.
+  "Schedules a sample, now or at the given `ranks`, at the `path` of the current flat event or the given one.
 
    The given `path` need not to point to a specific flow, it can point to a subtree which will then be walked to
    find all flows. This is more efficient than scheduling a sample for all flows individually. For instance, when
@@ -1678,7 +1684,7 @@
    scheduling every single element each frame.
   
    The way it works garantees deduplication and that is why it should be used instead of [[f-sample*]]. Without
-   deduplication, flows might be sampled more than once for a given timevec which not only is inefficient, it corrupts
+   deduplication, flows might be sampled more than once for some given ranks which not only is inefficient, it corrupts
    data if some flows are not idempotent. Scheduling a sample using this function is always idempotent.
 
    See also [[f-infinite]]."
@@ -1692,25 +1698,25 @@
   ([ctx]
 
    (f-sample ctx
-             (timevec ctx)))
+             (ranks ctx)))
 
 
-  ([ctx timevec]
+  ([ctx ranks]
 
    (f-sample ctx
-             timevec
+             ranks
              (path ctx)))
 
 
-  ([ctx timevec path]
+  ([ctx ranks path]
 
    (update ctx
            ::events
            (fnil dsim.ranktree/update
                  (dsim.ranktree/tree))
-           (into [(first timevec)
+           (into [(first ranks)
                   rank-flows]
-                 (rest timevec))
+                 (rest ranks))
            (fn deduplicate-sampling [node]
              (dsim.util/assoc-shortest node
                                        path
@@ -1735,9 +1741,9 @@
    (-> ctx
        (assoc-in (f-path (path ctx))
                  (merge hmap
-                        {::flow         flow
-                         ::timevec-init (timevec ctx)
-                         ::queue        (e-get ctx)}))
+                        {::flow       flow
+                         ::ranks-init (ranks ctx)
+                         ::queue      (e-get ctx)}))
        e-dissoc)))
 
 
@@ -1745,14 +1751,15 @@
 
 (defn f-infinite 
 
-  "A flow is akin to an event. While events happen at one particular timevec and have no concept of duration,
+  "A flow is akin to an event. While events happen at precisely their ranks and have no concept of duration,
    flows last for an interval of time. They are sampled when needed, decided by the user, by using [[f-sample]].
 
    An \"infinite\" flow is either endless or ends at a moment that is not known in advance (eg. when the context
    satifies some condition not knowing when it will occur). It can be ended using `f-end`.
 
    Here is a simple example of an infinite flow that increments a value and schedules samples itself. In other
-   words, that value will be incremented every 500 time units until it is randomly decided to stop:
+   words, that value will be incremented every 500 time units until it is randomly decided to stop. Then, the rest
+   of the queue is resumed (event-a and event-b after a delay of 150 time units).
 
    ```clojure
    (dsim/queue (f-infinite (fn flow [ctx]
@@ -1763,9 +1770,9 @@
                                       0.1)
                                  (f-end ctx-2)
                                  (f-sample ctx-2
-                                           (wq-timevec+ ctx-2
+                                           (wq-ranks+ ctx-2
                                                         [500]))))))
-               (wq-delay (wq-timevec+ [150]))
+               (wq-delay (wq-ranks+ [150]))
                event-a
                event-b)
    ```
@@ -1774,7 +1781,9 @@
    This designs allows for simply building complex sequences of flows and events, including delays if needed (see
    [[wq-delay]]) and repetitions (see [[capture]]).i
   
-   When created, a flow is automatically sampled at the same ptime for initialization."
+   When created, a flow is automatically sampled at the same ptime for initialization.
+  
+   See also [[f-path]]."
 
   ([flow]
 
@@ -1822,7 +1831,7 @@
                         (after-sample ctx-2
                                       ptime-end)))))
         f-sample 
-        (f-sample (update (timevec ctx)
+        (f-sample (update (ranks ctx)
                           0
                           +
                           duration)))))
@@ -1862,29 +1871,29 @@
 
   "Just like [[f-finite]] but eases the process of repeatedly sampling the flow.
   
-   After each sample, starting at initialization, schedules another one using `ctx->timevec` (see the commonly
-   used [[wq-timevec+]]), maxing out the ptime at the ptime of completion so that the forseen interval will
+   After each sample, starting at initialization, schedules another one using `ctx->ranks` (see the commonly
+   used [[wq-ptime+]]), maxing out the ptime at the ptime of completion so that the forseen interval will
    not be exceeded."
 
-  ([ctx->timevec duration flow]
+  ([ctx->ranks duration flow]
 
    (fn event [ctx]
      (f-sampled ctx
-                ctx->timevec
+                ctx->ranks
                 duration
                 flow)))
 
 
-  ([ctx ctx->timevec duration flow]
+  ([ctx ctx->ranks duration flow]
 
    (-f-finite ctx
               (fn schedule-sampling [ctx ptime-end]
-                (let [timevec-sample (ctx->timevec ctx)]
-                  (if (and timevec-sample
-                           (< (first timevec-sample)
+                (let [ranks-sample (ctx->ranks ctx)]
+                  (if (and ranks-sample
+                           (< (first ranks-sample)
                               ptime-end))
                     (f-sample ctx
-                              timevec-sample)
+                              ranks-sample)
                     ctx)))
               duration
               flow)))

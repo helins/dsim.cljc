@@ -516,7 +516,9 @@
 
   "Update the value located at `path` and prioritized by `ranks`
   
-   When `path` is not provided, updates whatever is at the given `ranks`."
+   When `path` is not provided, updates whatever there is at the given `ranks`.
+  
+   If the result of applying `f` is nil, the value is removed."
 
   ([tree ranks f]
 

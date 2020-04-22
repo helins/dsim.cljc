@@ -573,16 +573,55 @@
 
 
 
+(defn infinite-flow
+
+  ;;
+
+  ([n]
+
+   (fn flow [ctx]
+     (infinite-flow ctx
+                    n)))
+
+
+  ([ctx n]
+
+   (let [path  (dsim/path ctx)
+         ctx-2 (update-in ctx
+                          path
+                          inc)]
+     (if (< (get-in ctx-2
+                    path)
+            n)
+       (dsim/f-sample ctx-2
+                      (dsim/wq-ptime+ ctx-2
+                                      1))
+       (dsim/f-end ctx-2)))))
+
+
+
+
+(defn flow-write-b
+
+  [ctx]
+
+  (dsim/f-end ((event-writer :b) ctx)))
+
+
+
+
 (def history-DE-op
 
   (dsim/historic (dsim/engine-ptime (assoc ptime-options
-                                           ::dsim/e-handler
-                                           (dsim/op-applier {::inc   event-inc
-                                                             ::pred? (fn pred? [ctx n]
-                                                                       (< (get-in ctx
-                                                                                  (dsim/path ctx))
-                                                                          n))
-                                                             ::writer event-writer})))))
+                                           ::dsim/handler
+                                           (dsim/op-applier {::inc           event-inc
+                                                             ::infinite-flow infinite-flow
+                                                             ::pred?         (fn pred? [ctx n]
+                                                                               (< (get-in ctx
+                                                                                          (dsim/path ctx))
+                                                                                  n))
+                                                             ::write-b       flow-write-b
+                                                             ::writer        event-writer})))))
 
 
 
@@ -706,7 +745,7 @@
                                                           event-inc
                                                           delay-1u
                                                           event-inc)))
-        op-delay-1u [::dsim/delay [::dsim/ptime+ 1]]]
+        op-delay-1u [::dsim/wq-delay [::dsim/wq-ptime+ 1]]]
 
     (t/is (= 3
              (count h))
@@ -750,8 +789,8 @@
                (history-DE-op (dsim/e-conj (ctx-init 0)
                                            [0]
                                            [:n]
-                                           (dsim/queue [::dsim/exec (dsim/queue [::inc]
-                                                                                [::inc])]))))))
+                                           (dsim/queue [::dsim/wq-exec (dsim/queue [::inc]
+                                                                                   [::inc])]))))))
 
 
 
@@ -783,9 +822,9 @@
                  (history-DE-op (dsim/e-conj (ctx-init 0)
                                              [1]
                                              [:n]
-                                             (dsim/queue [::dsim/capture]
+                                             (dsim/queue [::dsim/wq-capture]
                                                          [::inc]
-                                                         [::dsim/replay [::pred? n]])))))
+                                                         [::dsim/wq-replay [::pred? n]])))))
 
 
     (let [h (history-DE (dsim/e-conj (ctx-init 0)
@@ -807,10 +846,10 @@
                  (history-DE-op (dsim/e-conj (ctx-init 0)
                                              [1]
                                              [:n]
-                                             (dsim/queue [::dsim/capture]
+                                             (dsim/queue [::dsim/wq-capture]
                                                          [::inc]
-                                                         [::dsim/delay [::dsim/ptime+ 1]]
-                                                         [::dsim/replay [::pred? n]])))))))
+                                                         [::dsim/wq-delay [::dsim/wq-ptime+ 1]]
+                                                         [::dsim/wq-replay [::pred? n]])))))))
 
 
 
@@ -833,15 +872,15 @@
            (:writer (last (history-DE-op (dsim/e-conj (ctx-init 0) 
                                                       [1]
                                                       [:writer]
-                                                      (dsim/queue [::dsim/capture]
+                                                      (dsim/queue [::dsim/wq-capture]
                                                                   [::writer :out]
-                                                                  [::dsim/capture]
+                                                                  [::dsim/wq-capture]
                                                                   [::writer :in]
-                                                                  [::dsim/sreplay [::dsim/pred-repeat]
-                                                                                  1]
+                                                                  [::dsim/wq-sreplay [::dsim/wq-pred-repeat]
+                                                                                     1]
                                                                   [::writer :out]
-                                                                  [::dsim/sreplay [::dsim/pred-repeat]
-                                                                                  1]))))))
+                                                                  [::dsim/wq-sreplay [::dsim/wq-pred-repeat]
+                                                                                     1]))))))
         "An inner loop within an outer one"))
 
 
@@ -867,18 +906,7 @@
         h   (history-DE (dsim/e-conj (ctx-init 0)
                                      [1]
                                      [:n]
-                                     (dsim/f-infinite (fn flow [ctx]
-                                                        (let [path  (dsim/path ctx)
-                                                              ctx-2 (update-in ctx
-                                                                               path
-                                                                               inc)]
-                                                          (if (< (get-in ctx-2
-                                                                         path)
-                                                                 n)
-                                                            (dsim/f-sample ctx-2
-                                                                           (dsim/wq-ptime+ ctx-2
-                                                                                           1))
-                                                            (dsim/f-end ctx-2)))))))
+                                     (dsim/f-infinite (infinite-flow n))))
         end (last h)]
 
     (t/is (= n
@@ -889,7 +917,16 @@
              (count h))
           "Flow is moving through discrete time")
 
-    (test-stability end)))
+    (test-stability end)
+
+    (t/is (= (map :n
+                  h)
+             (map :n
+                  (history-DE-op (dsim/e-conj (ctx-init 0)
+                                              [1]
+                                              [:n]
+                                              [::dsim/f-infinite [::infinite-flow n]]))))
+          "Operation behaves like function.")))
 
 
 
@@ -897,6 +934,11 @@
 (def ptime+1
 
   (dsim/wq-ptime+ 1))
+
+
+(def op-ptime+1
+
+  [::dsim/wq-ptime+ 1])
 
 
 
@@ -912,10 +954,7 @@
                                      [:n]
                                      (dsim/f-sampled ptime+1
                                                      (dec n)
-                                                     (fn flow [ctx]
-                                                       (update-in ctx
-                                                                  (dsim/path ctx)
-                                                                  inc)))))
+                                                     event-inc)))
         end (last h)]
 
     (t/is (= n
@@ -926,7 +965,18 @@
              (:n end))
           "Flow should end on expected result")
 
-    (test-stability end))
+    (test-stability end)
+    
+    (t/is (= (map :n
+                  h)
+             (map :n
+                  (history-DE-op (dsim/e-conj (ctx-init 0)
+                                              [0]
+                                              [:n]
+                                              [::dsim/f-sampled op-ptime+1
+                                                                (dec n)
+                                                                [::inc]]))))
+          "Operation behave like function."))
 
 
   (let [h (history-DE (dsim/e-conj (ctx-init 0)
@@ -936,14 +986,27 @@
                                                (dsim/f-sampled ptime+1
                                                                2
                                                                (event-writer :a))
-                                               (dsim/f-infinite (fn flow [ctx]
-                                                                  (dsim/f-end ((event-writer :b) ctx))))
+                                               (dsim/f-infinite flow-write-b)
                                                (dsim/wq-delay ptime+1)
                                                (dsim/f-sampled ptime+1
                                                                1
                                                                (event-writer :c))
                                                (dsim/wq-sreplay dsim/wq-pred-repeat
-                                                                2))))]
+                                                                2))))
+        op-h (history-DE-op (dsim/e-conj (ctx-init 0)
+                                         [0]
+                                         [:writer]
+                                         (dsim/queue [::dsim/wq-capture]
+                                                     [::dsim/f-sampled op-ptime+1
+                                                                       2
+                                                                       [::writer :a]]
+                                                     [::dsim/f-infinite [::write-b]]
+                                                     [::dsim/wq-delay op-ptime+1]
+                                                     [::dsim/f-sampled op-ptime+1
+                                                                       1
+                                                                       [::writer :c]]
+                                                     [::dsim/wq-sreplay [::dsim/wq-pred-repeat]
+                                                                        2])))]
     (t/is (= [[:a]
               [:a :a]
               [:a :a :a :b]
@@ -958,5 +1021,7 @@
               [:a :a :a :b :c :c :a :a :a :b :c :c :a :a :a :b :c]
               [:a :a :a :b :c :c :a :a :a :b :c :c :a :a :a :b :c :c]]
              (map :writer
-                  h))
+                  h)
+             (map :writer
+                  op-h))
           "Respecting the timing of transitions between flows")))

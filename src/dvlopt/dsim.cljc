@@ -17,15 +17,15 @@
 
 ;;;;;;;;;; API structure (searchable for easy navigation)
 ;;
-;; @[datastruct]  Data structures
-;; @[misc]        Miscellaneous functions
-;; @[scale]       Scaling numerical values
-;; @[ctx]         Generalities about contextes
-;; @[events]      Adding, removing, and modifying events
-;; @[ngin]        Building time-based event engines
-;; @[wq]          Relative to the currently executed queue (aka. the "working queue")
-;; @[op]          Operation handling
-;; @[flows]       Creating and managing flows
+;; @[queue]   Queues
+;; @[misc]    Miscellaneous functions
+;; @[scale]   Scaling numerical values
+;; @[ctx]     Generalities about contextes
+;; @[events]  Adding, removing, and modifying events
+;; @[ngin]    Building time-based event engines
+;; @[wq]      Relative to the currently executed queue (aka. the "working queue")
+;; @[flows]   Creating and managing flows
+;; @[serial]  Data unit events and serialization
 
 
 
@@ -52,6 +52,9 @@
 
 
 (declare e-update
+         exec
+         f-ranks
+         f-sample*
          op-std
          path
          wq-vary-meta)
@@ -59,7 +62,7 @@
 
 
 
-;;;;;;;;;; @[datastruct]  Data structures
+;;;;;;;;;; @[queue]  Queues
 
 
 (defn queue
@@ -709,22 +712,22 @@
   ;;         to the last known state. Is it useful though?
 
 
-  ([e-handler ctx q]
+  ([handler ctx q]
 
-   (-exec-q e-handler
+   (-exec-q handler
             ctx
             q
             identity))
 
 
-  ([e-handler ctx q after-q]
+  ([handler ctx q after-q]
 
    (let [event  (peek q)
          q-2    (pop q)
          [ctx-2
           q-3]  (try
                   (if (queue? event)
-                    [(-exec-q e-handler
+                    [(-exec-q handler
                               ctx
                               event
                               (fn restore-outer [ctx]
@@ -733,10 +736,10 @@
                                            ::queue]
                                           q-2)))
                      q-2]
-                    (let [ctx-2 (e-handler (assoc-in ctx
-                                                     [::e-flat
-                                                      ::queue]
-                                                     q-2)
+                    (let [ctx-2 (handler (assoc-in ctx
+                                                   [::e-flat
+                                                    ::queue]
+                                                   q-2)
                                            event)]
                       [ctx-2
                        (e-get ctx-2)]))
@@ -744,9 +747,9 @@
                   (catch ExceptionInfo err
                     (let [err-data (ex-data err)]
                       (if-some [on-error (::on-error (meta q-2))]
-                        (let [ctx-2 (e-handler (void/assoc {::ctx   ctx
-                                                            ::error err}
-                                                           ::ctx-inner (::ctx err-data))
+                        (let [ctx-2 (handler (void/assoc {::ctx   ctx
+                                                          ::error err}
+                                                         ::ctx-inner (::ctx err-data))
                                                on-error)]
                           [ctx-2
                            (e-get ctx-2)])
@@ -762,9 +765,9 @@
                             :cljs js/Error)
                          e
                     (if-some [on-error (::on-error (meta q-2))]
-                      (let [ctx-2 (e-handler {:ctx   ctx
-                                              :error e}
-                                             e-handler)]
+                      (let [ctx-2 (handler {:ctx   ctx
+                                            :error e}
+                                           handler)]
                         [ctx-2
                          (e-get ctx-2)])
                       (throw (ex-info "Throwing in the last computed context"
@@ -772,10 +775,36 @@
                                       e)))))]
      (if (empty? q-3)
        (after-q ctx-2)
-       (recur e-handler
+       (recur handler
               ctx-2
               q-3
               after-q)))))
+
+
+
+
+(defn- -f-sample
+
+  ;; Used by [[-exec-e]] to sample flows when needed.
+
+  [handler ctx ptime path node]
+
+  (if-some [flow (::flow node)]
+    (handler (assoc ctx
+                    ::e-flat
+                    {::path  path
+                     ::ranks (assoc (::ranks-init node)
+                                     0
+                                     ptime)})
+               flow)
+     (reduce-kv (fn deeper [ctx-2 k node-next]
+                  (-f-sample ctx
+                             ptime
+                             (conj path
+                                   k)
+                             node-next))
+                ctx
+                node)))
 
 
 
@@ -786,27 +815,41 @@
   ;;
   ;; Cf. [[engine*]]
 
-  [e-handler ctx ranks path event]
+  [handler ctx ranks path event]
 
-  (if (queue? event)
-     (-exec-q e-handler
-              (assoc ctx
-                     ::e-flat
-                     {::path  path
-                      ::ranks ranks})
-              event)
-     (let [ctx-2 (e-handler (assoc ctx
+  (cond
+    (queue? event) (-exec-q handler
+                            (assoc ctx
                                    ::e-flat
                                    {::path  path
-                                    ::queue (queue)
                                     ::ranks ranks})
                             event)
-           wq    (e-get ctx)]
-       (if (empty? wq)
-         ctx-2
-         (-exec-q e-handler
-                  ctx-2
-                  wq)))))
+    (empty? event) (if (= (second ranks)
+                          f-ranks)
+                     (-f-sample handler
+                                ctx
+                                (first ranks)
+                                path
+                                (get-in ctx
+                                        (f-path path)))
+                     (throw (ex-info "Nil or empty event"
+                                     {::ctx   ctx
+                                      ::event event
+                                      ::ranks ranks
+                                      ::path  path})))
+                               
+    :else          (let [ctx-2 (handler (assoc ctx
+                                               ::e-flat
+                                               {::path  path
+                                                ::queue (queue)
+                                                ::ranks ranks})
+                                          event)
+                         wq    (e-get ctx)]
+                     (if (empty? wq)
+                       ctx-2
+                       (-exec-q handler
+                                ctx-2
+                                wq)))))
 
 
 
@@ -818,9 +861,28 @@
 
   (-> ctx
       (dissoc ::e-flat)
-      (vary-meta (fn clean-e-handler [mta]
+      (vary-meta (fn clean-handler [mta]
                    (not-empty (dissoc mta
-                                      ::e-handler))))))
+                                      ::handler))))))
+
+
+
+
+(defn ef-handler
+
+  "Default ::handler treating events as functions ctx -> ctx.
+  
+   See [[engine]] and [[op-applier]]."
+
+  ([k]
+
+   nil)
+
+
+  ([ctx event]
+
+   (event ctx)))
+
 
 
 
@@ -852,11 +914,11 @@
    An engine, if it detects that events need to be processed, must call ::period-start. It can then call
    ::run one or several times, and when all needed events are processed, the engine must call ::period-end."
 
-  ;; The event handler provided by the user (typically the result of [[op-applier]], if any, needs
+  ;; The  handler provided by the user (typically the result of [[op-applier]], if any, needs
   ;; to figure in the ctx metadata. Everytime a ctx is returned to the user after some period, it must
   ;; be removed.
   ;;
-  ;; The main purpose of event handler is for the ctx to be serializable. Hence, keeping the event handler
+  ;; The main purpose of handler is for the ctx to be serializable. Hence, keeping the handler
   ;; in the metadata defeats that purpose.
 
   ([]
@@ -866,14 +928,13 @@
 
   ([options]
 
-   (let [e-handler (or (::e-handler options)
-                       (fn ef-handler [ctx f]
-                         (f ctx)))]
+   (let [handler (or (::handler options)
+                     ef-handler)]
      {::period-start (fn period-start [ctx]
                        (vary-meta ctx
                                   assoc
-                                  ::e-handler
-                                  e-handler))
+                                  ::handler
+                                  handler))
       ::period-end   -period-end
       ::run          (fn run 
 
@@ -890,7 +951,7 @@
                                                                      ::events
                                                                      events-2))
                                                 (partial -exec-e
-                                                         e-handler))))})))
+                                                         handler))))})))
 
 
 
@@ -905,7 +966,7 @@
   
    | k | v |
    |---|---|
-   | ::e-handler | Event handler, only needed if events are data (see [[op-applier]]). |"
+   | ::handler | Event handler, only needed if events are data (see [[op-applier]]). |"
 
   ([]
 
@@ -943,7 +1004,7 @@
    |---|---|
    | ::before | Function ctx -> ctx called right before the first event of the next ptime |
    | ::after | Functoion ctx -> ctx called after executing all events of a ptime. |
-   | ::e-handler | See [[engine]]. |"
+   | ::handler | See [[engine]]. |"
 
    
   ;; MAYBEDO. ::after
@@ -1040,7 +1101,12 @@
 
 (defn wq-breaker
 
-  "Removes the working queue if `pred?`, called with the current `ctx`, returns true."
+  "Removes the working queue if `pred?`, called with the current `ctx`, returns true.
+  
+   As an operation (see [[op-applier]]):
+   ```clojure
+   [::wq-breaker [:your-pred]]
+   ```"
 
   ([pred?]
 
@@ -1094,6 +1160,11 @@
           (wq-delay (wq-ptime+ 100))
           event-b
           event-c)
+   ```
+  
+   As an operation (see [[op-applier]]):
+   ```
+   [::wq-capture]
    ```"
   
   ([]
@@ -1118,30 +1189,6 @@
                                    (conj sreplay
                                          nil)
                                    (list nil)))))))))
-
-
-
-
-(defn wq-copy
-
-  "Copies the current working queue to the computed `ranks` in the event tree on the same path.
-  
-   Because this is Clojure, the queue is not actually copied as it is immutable.
-
-   Unless something more sophisticated is needed, `ctx->ranks` will often be the result of [[wq-ptime+]]."
-
-  ([ctx->ranks]
-
-   (fn event [ctx]
-     (wq-copy ctx
-               ctx->ranks)))
-
-
-  ([ctx ctx->ranks]
-
-   (e-conj ctx
-           (ctx->ranks ctx)
-           (e-get ctx))))
 
 
 
@@ -1177,7 +1224,12 @@
           customer-leaves)
    ``` 
   
-   See also [[wq-copy]]."
+   Unless something more sophisticated is needed, `ctx->ranks` will often be the result of [[wq-ptime+]].
+  
+   As an operation (here, using [[wq-ptime+]])(see [[op-applier]]):
+   ```clojure
+   [::wq-delay [::wq-ptime+ 500]]
+   ```"
 
   ([ctx->ranks]
 
@@ -1188,8 +1240,9 @@
 
   ([ctx ctx->ranks]
   
-   (e-dissoc (wq-copy ctx
-                      ctx->ranks))))
+   (e-dissoc (e-conj ctx
+                     (ctx->ranks ctx)
+                     (e-get ctx)))))
 
 
 
@@ -1197,7 +1250,12 @@
 (defn wq-do!
 
   "Calls `side-effect` with the `ctx` to do some side effect. Ignores the result and simply
-   returns the unmodified `ctx`."
+   returns the unmodified `ctx`.
+  
+   As an operation (see [[op-applier]]):
+   ```clojure
+   [::wq-do! [:your-op]]
+   ```"
 
   ([side-effect]
 
@@ -1218,7 +1276,12 @@
 
   "Executes the given event queue `q` in isolation from the rest of the working queue.
   
-   See also [[e-isolate]]."
+   See also [[e-isolate]].
+
+   As an operation (see [[op-applier]]):
+   ```clojure
+   [::wq-exec (dsim/queue ...)]
+   ```"
 
   ([q]
 
@@ -1260,7 +1323,13 @@
    Turns `f` into a regular event which accepts a `ctx`. Underneath, calls (f ctx data-at-path current-ptime).
    The result is automatically associated in the `ctx` at the same path.
   
-   Notably useful for [[f-finite]] and [[f-sampled]]."
+   Notably useful for [[f-finite]] and [[f-sampled]].
+  
+   As an operation, where `f` is itself an operation whose last argument, when called, will be ptime (see
+   [[op-applier]]):
+   ```clojure
+   [::wq-mirror [:your-op 42 :arg]]
+   ```"
 
   ([f]
 
@@ -1289,7 +1358,12 @@
    will be repeated. For instance, 2 means 3 occurences: the captured queue is first executed, then repeated
    twice.
   
-   See [[wq-capture]] for an example."
+   See [[wq-capture]] for an example.
+  
+   As an operation (see [[op-applier]]):
+   ```clojure
+   [::wq-pred-repeat 3]
+   ```"
 
   [_ctx n]
 
@@ -1299,29 +1373,15 @@
 
 
 
-(defn- -replay-captured
-
-  ;; Restore the queue that needs to be replayed.
-
-  [ctx]
-
-  (let [mta (wq-meta ctx)]
-    (if-some [q (peek (::captured mta))]
-      (e-assoc ctx
-               (with-meta q
-                          mta))
-      (throw (ex-info "There is nothing captured to replay"
-                      {::ctx ctx})))))
-
-
-
 (defn wq-ptime+
 
   "Produces a function ctx -> ranks, useful for other `wq-XXX` functions such as [[wq-delay]].
 
    Fetches the ranks of the current flat event and updates its ptime by adding `ptime+`.
 
-   Throws if `ptime+` < 0, as time travel is forbidden."
+   Throws if `ptime+` < 0, as time travel is forbidden.
+  
+   As an operation, see [[wq-delay]]."
 
   ([ptime+]
 
@@ -1344,12 +1404,34 @@
 
 
 
+(defn- -replay-captured
+
+  ;; Restore the queue that needs to be replayed.
+
+  [ctx]
+
+  (let [mta (wq-meta ctx)]
+    (if-some [q (peek (::captured mta))]
+      (e-assoc ctx
+               (with-meta q
+                          mta))
+      (throw (ex-info "There is nothing captured to replay"
+                      {::ctx ctx})))))
+
+
+
+
 (defn wq-replay
 
   "When `pred?` returns true after being called with the current `ctx`, replays the last queue captured by 
    [[wq-capture]].
   
-   When it returns a falsy value, that last captured queue is removed."
+   When it returns a falsy value, that last captured queue is removed.
+  
+   As an operation (see [[op-applier]]):
+   ```clojure
+   [::wq-replay [:your-pred]]
+   ```"
 
   ([pred?]
 
@@ -1375,7 +1457,13 @@
   "Similar to [[wq-replay]] but `pred` is stateful. It is called with the `ctx` and (initially) the `seed`.
    Returning anything but nil is considered as truthy and is stored as state replacing `seed` in the next call.
 
-   See [[wq-captured]] for an example with [[wq-pred-repeat]]."
+   See [[wq-captured]] for an example with [[wq-pred-repeat]].
+  
+   As an operation (see [[op-applier]]):
+   ```clojure
+   [::wq-sreplay [:your-pred]
+                 \"some seed\"]
+   ```"
 
   ([pred seed]
 
@@ -1410,173 +1498,22 @@
 
 (defn wq-vary-meta
 
-  "Uses Clojure's `vary-meta` on the working queue. (Unlike, does not accept variadic arguments to apply).
+  "Uses Clojure's `vary-meta` on the working queue.
   
    When that queue is copied or moved into the future (eg. by calling [[wq-delay]]), it is a convenient way of storing
    some state at the level of a queue which can later be retrieved using [[wq-meta]]. When a queue is garbage collected,
    so is its metadata."
 
-  ([f]
+  [ctx f & args]
 
-   (fn event [ctx]
-     (wq-vary-meta ctx
-                   f)))
-
-
-  ([ctx f & args]
-
-   (update-in ctx
-              [::e-flat
-               ::queue]
-              vary-meta
-              f)))
-
-
-
-
-;;;;;;;;;; @[op]  Operation handling
-
-
-(defn op-applier
-
-  "Prepares a function that can be used as ::e-handler (see [[engine]], [[engine-time]]).
-  
-   The purpose is to represent unit events as data instead of functions so that a context is fully
-   serializable when needed.
-
-   A data representation of an event, called an `operation`, has the following format:
-
-   ```clojure
-   [:some-keyword & args]
-   ```
-
-   `k->f` is a map keyword -> event function. The resulting event handler will use it to find the appropriate
-   event function and apply to it arguments from the `operation`.
-
-   See [[op-std]] for a map of event function automatically injected.
-  
-  
-   The user is free to follow any other format and make its own event handler if needed. The only rule
-   is that an event cannot be represented as a map."
-
-  [k->f]
-
-  (let [k->f-2 (merge k->f
-                      op-std)]
-    (fn e-handler
-      
-      ([k]
-
-       (or (get k->f-2
-                k)
-           (throw (ex-info "Function not found for operation"
-                           {::op-k k}))))
-
-      ([ctx [k & args :as op]]
-
-       (apply (e-handler k)
-              ctx
-              args)))))
-
-
-
-
-(defn op-exec
-
-  "During a run (see [[engine]] or and [[engine-ptime]]), can be called within an event in order the execute
-   the given `op`.
-  
-   See also [[op-applier]]."
-
-  [ctx op]
-
-  (if-some [e-handler (::e-handler (meta ctx))]
-    (e-handler ctx
-               op)
-    (throw (ex-info "No operation handler has been provided"
-                    {::ctx ctx}))))
-
-
-
-
-(def op-std
-
-  "Map of keyword -> event function automatically injected when calling [[op-applier]].
-
-   It contains the following useful `wq-XXX` functions:
-
-   ```clojure
-   :dvlopt.dsim/breaker
-   :dvlopt.dsim/capture
-   :dvlopt.dsim/delay
-   :dvlopt.dsim/do!
-   :dvlopt.dsim/exec
-   :dvlopt.dsim/mirror
-   :dvlopt.dsim/pred-repeat
-   :dvlopt.dsim/ptime+
-   :dvlopt.dsim/replay
-   :dvlopt.dsim/sreplay
-   ```
-
-   There are meant to mimick normal function calls. For instance, assuming ::event-a and
-   ::event-b have been provided to `op-applier`:
-
-   ```clojure
-   (queue [:dvlopt.dsim/capture]
-          [::event-a
-          [:dvlopt.dsim/delay [:dvlopt.dsim/ptime+ [100]]]
-          [::event-b 42 :some-arg]
-          [:dvlopt.dsim/sreplay [:dvlopt.dsim/pred-repeat]
-                                2])
-
-   ;; Is the data equivalent of (assuming `event-b` encapsulates args in a closure):
-
-   (queue wq-capture
-          event-a
-          (wq-delay (wq-ptime+ 100))
-          event-b
-          (wq-sreplay wq-pred-repeat
-                      2))
-   ```"
-
-  {::breaker     (fn event [ctx op-pred?]
-                   (wq-breaker ctx
-                               (fn pred? [ctx]
-                                 (op-exec ctx
-                                          op-pred?))))
-   ::capture     wq-capture
-   ::delay       (fn event [ctx op-ctx->ranks]
-                   (wq-delay ctx
-                             (fn ctx->ranks [ctx]
-                               (op-exec ctx
-                                        op-ctx->ranks))))
-   ::do!         (fn event [ctx op-side-effect]
-                   (wq-do! ctx
-                           (fn side-effect-2 [ctx]
-                             (op-exec ctx
-                                      op-side-effect))))
-   ::exec        wq-exec
-   ::mirror      (fn event [ctx op-mirror]
-                   (wq-mirror ctx
-                              (fn mirror [data ptime]
-                                (op-exec data
-                                         (conj op-mirror
-                                               ptime)))))
-   ::pred-repeat wq-pred-repeat
-   ::ptime+      wq-ptime+
-   ::replay      (fn event [ctx op-pred?]
-                   (wq-replay ctx
-                              (fn pred? [ctx]
-                                (op-exec ctx
-                                         op-pred?))))
-   ::sreplay     (fn event [ctx op-pred seed]
-                   (wq-sreplay ctx
-                               (fn pred [ctx state]
-                                 (op-exec ctx
-                                          (conj op-pred
-                                                state)))
-                               seed))
-   })
+  (update-in ctx
+             [::e-flat
+              ::queue]
+             (fn update-meta [q]
+               (with-meta q
+                          (apply f
+                                 (meta q)
+                                 args)))))
 
 
 
@@ -1584,7 +1521,7 @@
 ;;;;;;;;;; @[flows]  Creating and managing flows
 
 
-(def rank-flows
+(def f-ranks
 
   "This rank is automatically inserted when a sample is scheduled.
   
@@ -1613,7 +1550,7 @@
         ctx-2     (void/dissoc-in ctx
                                   flow-path)]
     (if-some [q (not-empty (::queue flow-leaf))]
-      (-exec-q (::e-handler (meta ctx-2))
+      (-exec-q (::handler (meta ctx-2))
                (assoc-in ctx-2
                          [::e-flat
                           ::ranks]
@@ -1622,54 +1559,6 @@
                                 (first (ranks ctx-2))))
                q)
       ctx-2)))
-
-
-
-
-(defn- -f-sample*
-
-  ;; Cf. [[f-sample*]]
-
-  [ctx ptime path node]
-
-  (or (void/call (::flow node)
-                 (assoc ctx
-                        ::e-flat
-                        {::path  path
-                         ::ranks (assoc (::ranks-init node)
-                                         0
-                                         ptime)}))
-      (reduce-kv (fn deeper [ctx-2 k node-next]
-                   (-f-sample* ctx
-                               ptime
-                               (conj path
-                                     k)
-                               node-next))
-                 ctx
-                 node)))
-
-
-
-
-(defn f-sample*
-
-  "Kept public for extreme use cases. For the vast majority, users should rely on [[f-sample]].
-  
-   Directly samples all flows or a subtree at the given `path`."
-
-  ([ctx]
-
-   (f-sample* ctx
-              (path ctx)))
-
-
-  ([ctx path]
-
-   (-f-sample* (e-dissoc ctx)
-               (first (ranks ctx))
-               path
-               (get-in ctx
-                       (f-path path)))))
 
 
 
@@ -1683,16 +1572,19 @@
    drawing an animation frame, one can provide an empty path, which is indeed more efficient and easier than
    scheduling every single element each frame.
   
-   The way it works garantees deduplication and that is why it should be used instead of [[f-sample*]]. Without
-   deduplication, flows might be sampled more than once for some given ranks which not only is inefficient, it corrupts
-   data if some flows are not idempotent. Scheduling a sample using this function is always idempotent.
+   The way it works garantees deduplication, meaning that no matter how and how many times a sample is scheduled for
+   a given ptime, it will ultimately happen only once.
 
-   See also [[f-infinite]]."
+   See also [[f-infinite]].
+
+   As an operation (see [[op-applier]]):
+   ```clojure
+   [::f-sample]
+   ```"
 
   ([]
 
-   (fn event [ctx]
-     (f-sample ctx)))
+   f-sample)
 
 
   ([ctx]
@@ -1710,17 +1602,17 @@
 
   ([ctx ranks path]
 
-   (update ctx
-           ::events
-           (fnil dsim.ranktree/update
-                 (dsim.ranktree/tree))
-           (into [(first ranks)
-                  rank-flows]
-                 (rest ranks))
-           (fn deduplicate-sampling [node]
-             (dsim.util/assoc-shortest node
-                                       path
-                                       f-sample*)))))
+   (let [ranks-2 (into [(first ranks)
+                        f-ranks]
+                       (rest ranks))]
+     (e-assoc ctx
+              ranks-2
+              nil
+              (not-empty (dsim.util/assoc-shortest (e-get ctx
+                                                          ranks-2
+                                                          path)
+                                                   path
+                                                   nil))))))
 
 
 
@@ -1783,7 +1675,13 @@
   
    When created, a flow is automatically sampled at the same ptime for initialization.
   
-   See also [[f-path]]."
+   See also [[f-path]].
+  
+   As an operation:
+   ```clojure
+   [::f-infinite [:your-flow]]
+   ```"
+
 
   ([flow]
 
@@ -1801,40 +1699,47 @@
 
 
 
+(defn- -norm-flow
+
+  ;; Normalizes a finite-flow.
+  ;;
+  ;; See [[f-finite]] and [[f-sample]].
+
+  [ctx start duration flow after-sample]
+
+  (let [e-ptime (minmax-norm start
+                             duration
+                             (::ptime ctx))
+        ctx-2   (flow (assoc-in ctx
+                                [::e-flat
+                                 ::ptime]
+                                e-ptime))]
+    (if (>= e-ptime
+            1)
+      (f-end (update ctx-2
+                     ::e-flat
+                     dissoc
+                     ::ptime))
+      (after-sample ctx-2
+                    (+ start
+                       duration)))))
+
+
+
+
 (defn- -f-finite
 
   ;; Cf. [[f-finite]]
-  ;;
-  ;; Todo. void, assoc-some
 
-  [ctx after-sample duration flow]
+  [ctx duration norm-flow]
 
-  (let [ptime       (::ptime ctx)
-        ptime-end   (+ ptime
-                       duration)
-        norm-ptime  (partial minmax-norm
-                             ptime
-                             duration)]
-    (-> ctx
-        (-f-assoc (fn norm-flow [ctx]
-                    (let [e-ptime (norm-ptime (::ptime ctx))
-                          ctx-2   (flow (assoc-in ctx
-                                                  [::e-flat
-                                                   ::ptime]
-                                                  e-ptime))]
-                      (if (>= e-ptime
-                              1)
-                        (f-end (update ctx-2
-                                       ::e-flat
-                                       dissoc
-                                       ::ptime))
-                        (after-sample ctx-2
-                                      ptime-end)))))
-        f-sample 
-        (f-sample (update (ranks ctx)
-                          0
-                          +
-                          duration)))))
+  (-> ctx
+      (-f-assoc norm-flow)
+      f-sample 
+      (f-sample (update (ranks ctx)
+                        0
+                        +
+                        duration))))
 
 
 
@@ -1847,7 +1752,12 @@
    before each sample, the ptime is linearly normalized to a value between 0 and 1 inclusive. In simpler terms,
    the value at [::e-flat ::ptime] (also returned by [[ptime]]) is the percentage of completion for that flow.
 
-   Samples are automatically scheduled at creation for initialization and at the end for clean-up."
+   Samples are automatically scheduled at creation for initialization and at the end for clean-up.
+  
+   As an operation (see [[op-applier]]):
+   ```clojure
+   [::f-finite [:your-flow]]
+   ```"
 
   ([duration flow]
 
@@ -1860,9 +1770,31 @@
   ([ctx flow duration]
 
    (-f-finite ctx
-              identity
               duration
-              flow)))
+              (let [start (::ptime ctx)]
+                (fn norm-flow [ctx]
+                  (-norm-flow ctx
+                              start
+                              duration
+                              flow
+                              identity))))))
+
+
+
+(defn- -fn-schedule-sample
+
+  ;; Rescheduling used by [[f-sampled]].
+
+  [ctx->ranks]
+
+  (fn schedule-sampling [ctx ptime-end]
+    (let [ranks-sample (ctx->ranks ctx)]
+      (if (and ranks-sample
+               (< (first ranks-sample)
+                  ptime-end))
+        (f-sample ctx
+                  ranks-sample)
+        ctx))))
 
 
 
@@ -1873,7 +1805,14 @@
   
    After each sample, starting at initialization, schedules another one using `ctx->ranks` (see the commonly
    used [[wq-ptime+]]), maxing out the ptime at the ptime of completion so that the forseen interval will
-   not be exceeded."
+   not be exceeded.
+  
+   As an operation (see [[op-applier]]):
+   ```
+   [::f-sampled [::wq-ptime+ 500]
+                4200
+                [:your-flow]]
+   ```"
 
   ([ctx->ranks duration flow]
 
@@ -1885,15 +1824,238 @@
 
 
   ([ctx ctx->ranks duration flow]
-
+ 
    (-f-finite ctx
-              (fn schedule-sampling [ctx ptime-end]
-                (let [ranks-sample (ctx->ranks ctx)]
-                  (if (and ranks-sample
-                           (< (first ranks-sample)
-                              ptime-end))
-                    (f-sample ctx
-                              ranks-sample)
-                    ctx)))
               duration
-              flow)))
+              (let [start           (::ptime ctx)
+                    schedule-sample (-fn-schedule-sample ctx->ranks)]
+                (fn norm-flow [ctx]
+                  (-norm-flow ctx
+                              start
+                              duration
+                              flow
+                              schedule-sample))))))
+
+
+
+
+;;;;;;;;;; @[serial]  Data unit events and serialization
+
+
+(defn handler
+
+  "Sometimes, a context needs to be serializable, for instance for saving to a file or sending over
+   the network. However, events as functions are not serializable. That is why it is also possible to
+   use events as data, called \"operations\".
+
+   Thus, an engine does not know in what format is an event unit, it just knows it must be executed.
+   It needs a handler which can perform the execution. [[ef-handler]] is the default one which treats
+   each unit event as a function. [[op-applier]] allows to create a custom handler for events represented
+   as vectors. Such a custom handler can be passed as the ::handler option when creating an engine (see
+   [[engine]] and [[engine-ptime]]).
+
+   
+   [[handler]] retrieves the handler currently attached to the given `ctx`. It is meant to be called
+   during a run, otherwise it will throw.
+   
+   The user will only seldom need to access the handler. It is rather used by functions manipulating
+   events in some way. For instance, functions in [[std-op]] often need it.
+  
+
+   Definitely see [[op-applier]]."
+
+  ([ctx]
+
+   (or (::handler (meta ctx))
+       (throw (ex-info "No handler currently attached"
+                       {::ctx ctx}))))
+
+  ([ctx x]
+
+   ((handler ctx) ctx
+                  x)))
+
+
+
+
+(defn op-applier
+
+  "Prepares a function that can be used as ::handler (see [[engine]], [[engine-time]]).
+  
+   The purpose is to represent unit events as data instead of functions so that a context is fully
+   serializable when needed.
+
+   [[op-applier]] treats events and anything it executes as operations, here in the form of vector
+   such as:
+
+   ```clojure
+   [::some-keyword & args]
+   ```
+
+   `k->f` is a map keyword -> function.
+
+   Returns an event handler such as:
+
+   ```clojure
+   (fn handler
+     ([k]
+      \"Retrieves function for `k`\")
+     ([ctx op]
+      \"Handle operation by retrieving its function and applying ctx + args from the operation vector.\"))
+   ```
+  
+   See [[op-std]] for a map of event function automatically injected.
+
+   It does not only contains events but also other functions represented as operations (eg. see [[wq-breaker]]
+   or [[wq-mirror]].
+  
+
+   If really needed, one can use another format, hence another data event handler. To do so, one must:
+
+   - Ensure that the data event is neither a map nor a queue.
+   - Reimplement what is needed in [[op-std]], if needed.
+
+   One will study the source of [[op-applier]] and [[op-std]] if needed. Unless extraordinary conditions,
+   oen will not need to implement an alternative data event handler than [[op-applier]]."
+
+  [k->f]
+
+  (let [k->f-2 (merge k->f
+                      op-std)]
+    (fn handler
+
+      ([k]
+
+       (or (get k->f-2
+                k)
+           (throw (ex-info "Function not found in handler"
+                           {::key k}))))
+
+      ([ctx [k & args]]
+
+       (apply (handler k)
+              ctx
+              args)))))
+
+
+
+
+(def op-std
+
+  "Map of keyword -> event function automatically injected when calling [[op-applier]].
+
+   It contains the following useful `wq-XXX` functions:
+
+   ```clojure
+   ::wq-breaker
+   ::wq-capture
+   ::wq-delay
+   ::wq-do!
+   ::wq-exec
+   ::wq-mirror
+   ::wq-pred-repeat
+   ::wq-ptime+
+   ::wq-replay
+   ::wq-sreplay
+   ```
+
+   And those for creating flows:
+
+   ```clojure
+   ::f-infinite
+   ::f-finite
+   ::f-sample
+   ::f-sampled
+   ```
+
+   There are meant to mimick normal function calls. For instance, assuming ::event-a and
+   ::event-b have been provided to `op-applier`:
+
+   ```clojure
+   (queue [:dvlopt.dsim/capture]
+          [::event-a]
+          [:dvlopt.dsim/delay [:dvlopt.dsim/ptime+ [100]]]
+          [::event-b 42 :some-arg]
+          [:dvlopt.dsim/sreplay [:dvlopt.dsim/pred-repeat]
+                                2])
+
+   ;; Is the data equivalent of (assuming `event-b` encapsulates args in a closure):
+
+   (queue wq-capture
+          event-a
+          (wq-delay (wq-ptime+ 100))
+          event-b
+          (wq-sreplay wq-pred-repeat
+                      2))
+   ```"
+
+  {::-f-finite     (fn handle [ctx start duration op-flow]
+                     (-norm-flow ctx
+                                 start
+                                 duration
+                                 (fn handle-flow [ctx]
+                                   (handler ctx
+                                            op-flow))
+                                 identity))
+   ::-f-sampled    (fn handle [ctx start duration op-flow op-ctx->ranks]
+                     (-norm-flow ctx
+                                 start
+                                 duration
+                                 (fn handle-flow [ctx]
+                                   (handler ctx
+                                            op-flow))
+                                 (-fn-schedule-sample (fn handle-ranks [ctx]
+                                                        (handler ctx
+                                                                 op-ctx->ranks)))))
+   ::wq-breaker     (fn handle [ctx op-pred?]
+                      (wq-breaker ctx
+                                  (fn pred? [ctx]
+                                    (handler ctx
+                                             op-pred?))))
+   ::wq-capture     wq-capture
+   ::wq-delay       (fn hanlde [ctx op-ctx->ranks]
+                      (wq-delay ctx
+                                (fn ctx->ranks [ctx]
+                                  (handler ctx
+                                           op-ctx->ranks))))
+   ::wq-do!         (fn handle [ctx op-side-effect]
+                      (wq-do! ctx
+                              (fn side-effect-2 [ctx]
+                                (handler ctx
+                                         op-side-effect))))
+   ::wq-exec        wq-exec
+   ::wq-mirror      (fn handle [ctx op-mirror]
+                      (wq-mirror ctx
+                                 (fn mirror [data ptime]
+                                   (handler data
+                                            (conj op-mirror
+                                                  ptime)))))
+   ::wq-pred-repeat wq-pred-repeat
+   ::wq-ptime+      wq-ptime+
+   ::wq-replay      (fn handle [ctx op-pred?]
+                      (wq-replay ctx
+                                 (fn pred? [ctx]
+                                   (handler ctx
+                                            op-pred?))))
+   ::wq-sreplay     (fn handle [ctx op-pred seed]
+                      (wq-sreplay ctx
+                                  (fn pred [ctx state]
+                                    (handler ctx
+                                             (conj op-pred
+                                                   state)))
+                                  seed))
+   ::f-infinite     f-infinite
+   ::f-finite       (fn handle [ctx duration flow]
+                      (-f-finite ctx
+                                 duration
+                                 [::-f-finite (::ptime ctx)
+                                              duration
+                                              flow]))
+   ::f-sample       f-sample
+   ::f-sampled      (fn handle [ctx op-ctx->ranks duration flow]
+                      (-f-finite ctx
+                                 duration
+                                 [::-f-sampled (::ptime ctx)
+                                               duration
+                                               flow
+                                               op-ctx->ranks]))})

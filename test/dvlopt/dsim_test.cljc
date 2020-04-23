@@ -679,23 +679,50 @@
              (last h))
           "Respecting ranks"))
 
-    (t/is (= (assoc (ctx-jump 1)
-                    :handled
-                    true)
+  (t/is (= (ctx-jump 1)
+           (last (history-DE
+                   (dsim/e-conj (ctx-init 0)
+                                [1]
+                                [:n]
+                                (dsim/queue event-inc
+                                            (dsim/queue (dsim/queue dsim/stop))
+                                            event-inc
+                                            event-inc)))))
+        "Stopping everything")
+
+
+  (let [q-failing   (dsim/queue event-inc
+                                (fn error [_ctx]
+                                  (throw (ex-info "Shit happens"
+                                                  {})))
+                                event-inc)
+        error-mta   {::dsim/on-error (fn catch-error [catched]
+                                       (println :catched)
+                                       (dsim/e-stop (assoc (or (::dsim/ctx-inner catched)
+                                                               (::dsim/ctx catched))
+                                                           :handled?
+                                                           true)))}
+        after-error (assoc (ctx-jump 1)
+                           :handled?
+                           true)]
+    (t/is (= after-error
              (last (history-DE
                      (dsim/e-conj (ctx-init 0)
                                   [1]
                                   [:n]
-                                  (dsim/queue (with-meta (dsim/queue (dsim/queue event-inc
-                                                                                 (fn error [_ctx]
-                                                                                   (throw (ex-info "Shit happens"
-                                                                                                   {})))
-                                                                                 event-inc))
-                                                         {::dsim/on-error (fn catch-error [catched]
-                                                                            (assoc (::dsim/ctx-inner catched)
-                                                                                   :handled
-                                                                                   true))}))))))
-        "Error handling of nested queues"))
+                                  (with-meta q-failing
+                                             error-mta)))))
+          "Error handling")
+
+    (t/is (= after-error
+             (last (history-DE
+                     (dsim/e-conj (ctx-init 0)
+                                  [1]
+                                  [:n]
+                                  (dsim/queue (dsim/queue (with-meta (dsim/queue q-failing)
+                                                                     error-mta))
+                                              event-inc)))))
+          "Error handling of nested queues + removing the stack")))
 
 
 

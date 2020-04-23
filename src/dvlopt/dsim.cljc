@@ -658,13 +658,12 @@
 
 (defn e-stop
 
-  "Removes all events and all flows, meaning there is left to run."
+  "Removes the current flat event, thus stopping its execution."
 
   [ctx]
 
-  (-> ctx
-      (dissoc ::events)
-      (dissoc ::flows)))
+  (dissoc ctx
+          ::e-flat))
 
 
 
@@ -714,23 +713,51 @@
 ;;;;;;;;;; @[ngin]  Building time-based event engines
 
 
-(defn -on-err
+(defn- -catched
 
-  ;; Used by [[-exec-q]] to bubble up the ctx during an uncatch exception or to handle it.
+  ;; Used by [[-exec-ef]] which is not recompilable at the REPL (because of reader conditional).
 
-  [handler ctx q err map-catched]
+  [handler ctx q err]
 
-  (if-some [on-error (::on-error (meta q))]
-    (let [ctx-2 (handler (map-catched {::ctx   (e-dissoc ctx)
-                                       ::queue q})
-                         on-error)]
-      [ctx-2
-       (e-get ctx-2)])
-    (throw (ex-info "Throwing in the last computed context"
-                    {::ctx-inner   (e-dissoc ctx)
-                     ::queue-inner q}
-                    err))))
+  (let [ctx-2 (e-dissoc ctx)]
+    (or (some->> (::on-error (meta q))
+                 (handler {::ctx   ctx-2
+                           ::queue q}))
+        (loop [stack (::stack (::e-flat ctx-2))]
+          (if-some [[outer-ctx
+                     outer-q]  (peek stack)]
+                (or (some->> (::on-error (meta outer-q))
+                         (handler {::ctx         outer-ctx
+                                   ::ctx-inner   ctx-2
+                                   ::queue       outer-q
+                                   ::queue-inner q}))
+                (recur (pop stack)))
+            (throw (ex-info "Unhandled exception while running context"
+                            {::ctx   ctx-2
+                             ::queue q}
+                            err)))))))
 
+
+
+(defn- -exec-ef
+
+  ;; Executes a single unit event.
+  ;;
+  ;; If it throws, it try to find an error handler for the present queue or outers one
+  ;; present in the stack. If an error handler returns nil, meaning it does not know what
+  ;; to do, the pursuit continues.
+
+  [handler ctx q ef]
+
+  (try
+    (handler ctx
+             ef)
+    (catch #?(:clj  Throwable 
+              :cljs js/Error) err
+      (-catched handler
+                ctx
+                q
+                err))))
 
 
 
@@ -739,68 +766,50 @@
 
   ;; Executes the given event `q`.
   ;;
-  ;; Fugly, but works.
-  ;;
-  ;; MAYBDO. Try-catch at the level of every single event unit.
-  ;;         Less efficient than at the queue level, but allow for tracking the context down
-  ;;         to the last known state. Is it useful though?
+  ;; For handling inner queues, instead of using named recursion, tail call recursion is used
+  ;; by keeping a virtualized stack in ::e-flat. This has a few advantages, the most important
+  ;; one being it becomes easy to stop execution, one simply needs to dissoc the stack.
 
+  [handler ctx q]
 
-  ([handler ctx q]
-
-   (-exec-q handler
-            ctx
-            q
-            identity))
-
-
-  ([handler ctx q after-q]
-
-   (let [event  (peek q)
-         q-2    (pop q)
-         [ctx-2
-          q-3]  (try
-                  (if (queue? event)
-                    [(-exec-q handler
-                              ctx
-                              event
-                              (fn q-restore [ctx]
-                                (e-assoc ctx
-                                         q-2)))
-                     q-2]
-                    (let [ctx-2 (handler (e-assoc ctx
-                                                  q-2)
-                                         event)]
-                      [ctx-2
-                       (e-get ctx-2)]))
-                  (catch ExceptionInfo err
-                    (-on-err handler
-                             ctx
-                             q
-                             err
-                             (fn map-catched [resp]
-                               (merge resp
-                                      (let [err-data (ex-data err)]
-                                        (if (contains? err-data
-                                                       ::ctx-inner)
-                                          (assoc err-data
-                                                 ::error
-                                                 (ex-cause err))
-                                          {::error err}))))))
-                  (catch #?(:clj  Throwable
-                            :cljs js/Error)
-                         err
-                    (-on-err handler
-                             ctx
-                             q
-                             err
-                             identity)))]
-     (if (empty? q-3)
-       (after-q ctx-2)
-       (recur handler
-              ctx-2
-              q-3
-              after-q)))))
+  (let [event (peek q)
+        q-2   (pop q)]
+    (if (queue? event)
+      (recur handler
+             (update-in ctx
+                        [::e-flat
+                         ::stack]
+                        (fnil conj
+                              (list))
+                        [(e-dissoc ctx)
+                         q-2])
+             event)
+      (let [ctx-2 (-exec-ef handler
+                            (e-assoc ctx
+                                     q-2)
+                            q-2
+                            event)
+            q-3   (e-get ctx-2)]
+        (if (empty? q-3)
+          (if-some [[stack-2
+                     q-outer] (loop [stack (::stack (::e-flat ctx-2))]
+                                (when-some [[_ctx-outer
+                                             q-outer]   (peek stack)]
+                                  (let [stack-2 (pop stack)]
+                                    (if (empty? q-outer)
+                                      (recur stack-2)
+                                      [q-outer
+                                       stack-2]))))]
+            (recur handler
+                   (update ctx-2
+                           ::e-flat
+                           void/assoc-strict
+                           (not-empty stack-2))
+                   q-outer)
+            ctx-2)
+          (recur handler
+                 ctx-2
+                 q-3))))))
 
 
 
@@ -1106,6 +1115,21 @@
     (take-while some?
                 (rest (iterate engine
                                ctx)))))
+
+
+
+
+(defn stop
+
+  "Removes anything that is currently being executed (if any), all events and all flows,
+   meaning there is left to run."
+
+  [ctx]
+
+  (-> ctx
+      e-stop
+      (dissoc ::events)
+      (dissoc ::flows)))
 
 
 

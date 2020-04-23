@@ -656,6 +656,19 @@
 
 
 
+(defn e-stop
+
+  "Removes all events and all flows, meaning there is left to run."
+
+  [ctx]
+
+  (-> ctx
+      (dissoc ::events)
+      (dissoc ::flows)))
+
+
+
+
 (defn e-update
 
   "Seldom used by the user, often used by other `e-XXX` functions.
@@ -701,6 +714,27 @@
 ;;;;;;;;;; @[ngin]  Building time-based event engines
 
 
+(defn -on-err
+
+  ;; Used by [[-exec-q]] to bubble up the ctx during an uncatch exception or to handle it.
+
+  [handler ctx q err map-catched]
+
+  (if-some [on-error (::on-error (meta q))]
+    (let [ctx-2 (handler (map-catched {::ctx   (e-dissoc ctx)
+                                       ::queue q})
+                         on-error)]
+      [ctx-2
+       (e-get ctx-2)])
+    (throw (ex-info "Throwing in the last computed context"
+                    {::ctx-inner   (e-dissoc ctx)
+                     ::queue-inner q}
+                    err))))
+
+
+
+
+
 (defn- -exec-q
 
   ;; Executes the given event `q`.
@@ -730,49 +764,37 @@
                     [(-exec-q handler
                               ctx
                               event
-                              (fn restore-outer [ctx]
-                                (assoc-in ctx
-                                          [::e-flat
-                                           ::queue]
-                                          q-2)))
+                              (fn q-restore [ctx]
+                                (e-assoc ctx
+                                         q-2)))
                      q-2]
-                    (let [ctx-2 (handler (assoc-in ctx
-                                                   [::e-flat
-                                                    ::queue]
-                                                   q-2)
-                                           event)]
+                    (let [ctx-2 (handler (e-assoc ctx
+                                                  q-2)
+                                         event)]
                       [ctx-2
                        (e-get ctx-2)]))
-                  
                   (catch ExceptionInfo err
-                    (let [err-data (ex-data err)]
-                      (if-some [on-error (::on-error (meta q-2))]
-                        (let [ctx-2 (handler (void/assoc {::ctx   ctx
-                                                          ::error err}
-                                                         ::ctx-inner (::ctx err-data))
-                                               on-error)]
-                          [ctx-2
-                           (e-get ctx-2)])
-                        (throw (if (contains? err-data
-                                              ::ctx)
-                                 err
-                                 (ex-info (ex-message err)
+                    (-on-err handler
+                             ctx
+                             q
+                             err
+                             (fn map-catched [resp]
+                               (merge resp
+                                      (let [err-data (ex-data err)]
+                                        (if (contains? err-data
+                                                       ::ctx-inner)
                                           (assoc err-data
-                                                 ::ctx
-                                                 (e-dissoc ctx))
-                                          (ex-cause err)))))))
+                                                 ::error
+                                                 (ex-cause err))
+                                          {::error err}))))))
                   (catch #?(:clj  Throwable
                             :cljs js/Error)
-                         e
-                    (if-some [on-error (::on-error (meta q-2))]
-                      (let [ctx-2 (handler {:ctx   ctx
-                                            :error e}
-                                           handler)]
-                        [ctx-2
-                         (e-get ctx-2)])
-                      (throw (ex-info "Throwing in the last computed context"
-                                      {::ctx (e-dissoc ctx)}
-                                      e)))))]
+                         err
+                    (-on-err handler
+                             ctx
+                             q
+                             err
+                             identity)))]
      (if (empty? q-3)
        (after-q ctx-2)
        (recur handler

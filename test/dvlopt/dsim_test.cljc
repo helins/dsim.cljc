@@ -679,7 +679,6 @@
              (last h))
           "Respecting ranks"))
 
-
     (t/is (= (assoc (ctx-jump 1)
                     :handled
                     true)

@@ -594,8 +594,7 @@
                     path)
             n)
        (dsim/f-sample ctx-2
-                      (dsim/wq-ptime+ ctx-2
-                                      1))
+                      (dsim/wq-ptime+ 1))
        (dsim/f-end ctx-2)))))
 
 

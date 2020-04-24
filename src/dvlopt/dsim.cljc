@@ -1610,29 +1610,31 @@
   ([ctx]
 
    (f-sample ctx
-             (ranks ctx)))
+             ranks))
 
 
-  ([ctx ranks]
+  ([ctx ctx->ranks]
 
    (f-sample ctx
-             ranks
+             ctx->ranks
              (path ctx)))
 
 
-  ([ctx ranks path]
+  ([ctx ctx->ranks path]
 
-   (let [ranks-2 (into [(first ranks)
-                        f-ranks]
-                       (rest ranks))]
-     (e-assoc ctx
-              ranks-2
-              nil
-              (not-empty (dsim.util/assoc-shortest (e-get ctx
-                                                          ranks-2
-                                                          path)
-                                                   path
-                                                   nil))))))
+   (if-some [ranks (ctx->ranks ctx)]
+     (let [ranks-2 (into [(first ranks)
+                            f-ranks]
+                           (rest ranks))]
+       (e-assoc ctx
+                ranks-2
+                nil
+                (not-empty (dsim.util/assoc-shortest (e-get ctx
+                                                            ranks-2
+                                                            path)
+                                                     path
+                                                     nil))))
+     ctx)))
 
 
 
@@ -1756,10 +1758,7 @@
   (-> ctx
       (-f-assoc norm-flow)
       f-sample 
-      (f-sample (update (ranks ctx)
-                        0
-                        +
-                        duration))))
+      (f-sample (wq-ptime+ duration))))
 
 
 
@@ -1808,13 +1807,12 @@
   [ctx->ranks]
 
   (fn schedule-sampling [ctx ptime-end]
-    (let [ranks-sample (ctx->ranks ctx)]
-      (if (and ranks-sample
-               (< (first ranks-sample)
-                  ptime-end))
-        (f-sample ctx
-                  ranks-sample)
-        ctx))))
+    (f-sample ctx
+              (comp (fn before-end [[ptime-scheduled :as ranks]]
+                      (when (some-> ptime-scheduled
+                                    (< ptime-end))
+                        ranks))
+                    ctx->ranks))))
 
 
 

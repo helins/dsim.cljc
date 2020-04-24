@@ -709,6 +709,35 @@
 
 
 
+(defn mirror
+
+  "Many discrete events and flows are typically interested in two things: the path they work on and the current
+   ptime (ie. the first rank in their ranks, using [[engine-ptime]]).
+  
+   Turns `f` into a regular event which accepts a `ctx`. Underneath, calls `(f ctx data-at-path current-ptime)`.
+   The result is automatically associated in the `ctx` at the same path.
+  
+   Notably useful for [[f-finite]] and [[f-sampled]], and many regulard events for that matter."
+
+  ([f]
+
+   (fn event [ctx]
+     (mirror ctx
+             f)))
+
+
+  ([ctx f]
+
+   (let [current-path (path ctx)]
+     (assoc-in ctx
+               current-path
+               (f ctx
+                  (get-in ctx
+                          current-path)
+                  (ptime ctx))))))
+
+
+
 
 ;;;;;;;;;; @[ngin]  Building time-based event engines
 
@@ -1339,41 +1368,6 @@
 
 
 
-(defn wq-mirror
-
-  "Many discrete events and flows are typically interested in two things: the path they work on and the current
-   ptime (ie. the first rank in their ranks, using [[engine-ptime]]).
-  
-   Turns `f` into a regular event which accepts a `ctx`. Underneath, calls (f ctx data-at-path current-ptime).
-   The result is automatically associated in the `ctx` at the same path.
-  
-   Notably useful for [[f-finite]] and [[f-sampled]].
-  
-   As an operation, where `f` is itself an operation whose last argument, when called, will be ptime (see
-   [[op-applier]]):
-   ```clojure
-   [::wq-mirror [:your-op 42 :arg]]
-   ```"
-
-  ([f]
-
-   (fn event-2 [ctx]
-     (wq-mirror ctx
-                f)))
-
-
-  ([ctx f]
-
-   (let [path' (path ctx)]
-     (assoc-in ctx
-               path'
-               (f (get-in ctx
-                          path')
-                  (ptime ctx))))))
-
-
-
-
 (defn wq-pred-repeat
 
   "Example of a predicate meant to be used with [[wq-sreplay]].
@@ -1667,6 +1661,20 @@
 
 
 
+(defn- -f-relative
+
+  ;; Cf. [[f-infinite]]
+
+  [start flow ctx]
+
+  (flow (assoc-in ctx
+                  [::e-flat
+                   ::ptime]
+                  (- (::ptime ctx)
+                     start))))
+
+
+
 (defn f-infinite 
 
   "A flow is akin to an event. While events happen at precisely their ranks and have no concept of duration,
@@ -1708,6 +1716,7 @@
    [::f-infinite [:your-flow]]
    ```"
 
+  ;; TODO. Document relative ptime.
 
   ([flow]
 
@@ -1719,7 +1728,9 @@
   ([ctx flow]
 
    (-> ctx
-       (-f-assoc flow)
+       (-f-assoc (partial -f-relative 
+                          (::ptime ctx)
+                          flow))
        f-sample)))
 
 
@@ -1972,7 +1983,6 @@
    ::wq-delay
    ::wq-do!
    ::wq-exec
-   ::wq-mirror
    ::wq-pred-repeat
    ::wq-ptime+
    ::wq-replay
@@ -2017,6 +2027,12 @@
                                    (handler ctx
                                             op-flow))
                                  identity))
+   ::-f-infinite   (fn handle [ctx start op-flow]
+                     (-f-relative start
+                                  (fn handle-flow [ctx]
+                                    (handler ctx
+                                             op-flow))
+                                  ctx))
    ::-f-sampled    (fn handle [ctx start duration op-flow op-ctx->ranks]
                      (-norm-flow ctx
                                  start
@@ -2039,12 +2055,6 @@
                                 (handler ctx
                                          op-side-effect))))
    ::wq-exec        wq-exec
-   ::wq-mirror      (fn handle [ctx op-mirror]
-                      (wq-mirror ctx
-                                 (fn mirror [data ptime]
-                                   (handler data
-                                            (conj op-mirror
-                                                  ptime)))))
    ::wq-pred-repeat wq-pred-repeat
    ::wq-ptime+      wq-ptime+
    ::wq-replay      (fn handle [ctx op-pred?]
@@ -2059,13 +2069,16 @@
                                              (conj op-pred
                                                    state)))
                                   seed))
-   ::f-infinite     f-infinite
    ::f-finite       (fn handle [ctx duration flow]
                       (-f-finite ctx
                                  duration
                                  [::-f-finite (::ptime ctx)
                                               duration
                                               flow]))
+   ::f-infinite     (fn handle [ctx op-flow]
+                      (-> ctx
+                          (-f-assoc [::-f-infinite (::ptime ctx) op-flow])
+                          f-sample))
    ::f-sample       f-sample
    ::f-sampled      (fn handle [ctx op-ctx->ranks duration flow]
                       (-f-finite ctx

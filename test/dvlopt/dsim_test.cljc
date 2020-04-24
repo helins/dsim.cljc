@@ -202,8 +202,8 @@
 
 (def event-inc
 
-  (dsim/wq-mirror (fn event [n _ptime]
-                    (inc n))))
+  (dsim/mirror (fn event [_ctx n _ptime]
+                 (inc n))))
 
 
 
@@ -735,7 +735,6 @@
 ;;   `wq-capture`
 ;;   `wq-do!`
 ;;   `wq-meta`
-;;   `wq-mirror`
 ;;   `wq-vary-meta`
 ;;
 

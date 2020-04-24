@@ -52,9 +52,8 @@
 
 
 (declare e-update
-         exec
-         f-ranks
-         f-sample*
+         f-sample
+         handler
          op-std
          path
          wq-vary-meta)
@@ -744,7 +743,7 @@
 
 (defn- -catched
 
-  ;; Used by [[-exec-ef]] which is not recompilable at the REPL (because of reader conditional).
+  ;; Used by [[-exec-eu]] which is not recompilable at the REPL (because of reader conditional).
 
   [handler ctx q err]
 
@@ -768,7 +767,7 @@
 
 
 
-(defn- -exec-ef
+(defn- -exec-eu
 
   ;; Executes a single unit event.
   ;;
@@ -813,7 +812,7 @@
                         [(e-dissoc ctx)
                          q-2])
              event)
-      (let [ctx-2 (-exec-ef handler
+      (let [ctx-2 (-exec-eu handler
                             (e-assoc ctx
                                      q-2)
                             q-2
@@ -843,32 +842,6 @@
 
 
 
-(defn- -f-sample
-
-  ;; Used by [[-exec-e]] to sample flows when needed.
-
-  [handler ctx ptime path node]
-
-  (if-some [flow (::flow node)]
-    (handler (assoc ctx
-                    ::e-flat
-                    {::path  path
-                     ::ranks (assoc (::ranks-init node)
-                                     0
-                                     ptime)})
-               flow)
-     (reduce-kv (fn deeper [ctx-2 k node-next]
-                  (-f-sample ctx
-                             ptime
-                             (conj path
-                                   k)
-                             node-next))
-                ctx
-                node)))
-
-
-
-
 (defn- -exec-e
 
   ;; Executes an event.
@@ -884,20 +857,6 @@
                                    {::path  path
                                     ::ranks ranks})
                             event)
-    (empty? event) (if (= (second ranks)
-                          f-ranks)
-                     (-f-sample handler
-                                ctx
-                                (first ranks)
-                                path
-                                (get-in ctx
-                                        (f-path path)))
-                     (throw (ex-info "Nil or empty event"
-                                     {::ctx   ctx
-                                      ::event event
-                                      ::ranks ranks
-                                      ::path  path})))
-                               
     :else          (let [ctx-2 (handler (assoc ctx
                                                ::e-flat
                                                {::path  path
@@ -959,7 +918,8 @@
    Returns map containing:
 
    ```clojure
-   {::period-start (fn [ctx]
+   {::handler      \"The provided handler or the default one\"
+    ::period-start (fn [ctx]
                      \"Prepares context for running\")
                      
     ::period-end   (fn [ctx]
@@ -990,7 +950,8 @@
 
    (let [handler (or (::handler options)
                      ef-handler)]
-     {::period-start (fn period-start [ctx]
+     {::handler      handler
+      ::period-start (fn period-start [ctx]
                        (vary-meta ctx
                                   assoc
                                   ::handler
@@ -1063,7 +1024,7 @@
    | k | v |
    |---|---|
    | ::before | Function ctx -> ctx called right before the first event of the next ptime |
-   | ::after | Functoion ctx -> ctx called after executing all events of a ptime. |
+   | ::after | Function ctx -> ctx called after executing all events of a ptime. |
    | ::handler | See [[engine]]. |"
 
    
@@ -1082,6 +1043,7 @@
   ([options]
 
    (let [run*         (engine* options)
+         handler      (::handler run*)
          period-start (::period-start run*)
          period-end   (::period-end run*)
          run          (::run run*)
@@ -1109,24 +1071,27 @@
                                ::ptime-next ptime-next}))
               (-> ctx
                   period-start
+                  (assoc ::flows-dedup
+                         (::flows ctx))
                   (before-2 ptime-next)
                   (run events)
                   (run-ptime ptime-next))))))
 
        ([ctx ptime]
-        (if-some [events (::events ctx)]
-          (let [ptime-next (ffirst events)]
-            (cond
-              (> ptime-next
-                 ptime)     (after-2 ctx)
-              (= ptime-next
-                 ptime)     (recur (run ctx
-                                        events)
-                                   ptime)
-              :else         (throw (ex-info "Ptime of enqueued events is < current ptime"
-                                            {::ptime      ptime
-                                             ::ptime-next ptime-next}))))
-          (after-2 ctx)))))))
+        (let [events     (::events ctx)
+              ptime-next (ffirst events)]
+          (cond
+            (or (nil? ptime-next)
+                (> ptime-next
+                   ptime))        (after-2 (dissoc ctx
+                                                   ::flows-dedup))
+            (= ptime-next
+               ptime)             (recur (run ctx
+                                              events)
+                                         ptime)
+            :else                 (throw (ex-info "Ptime of enqueued events is < current ptime"
+                                                  {::ptime      ptime
+                                                   ::ptime-next ptime-next})))))))))
 
 
 
@@ -1539,17 +1504,6 @@
 ;;;;;;;;;; @[flows]  Creating and managing flows
 
 
-(def f-ranks
-
-  "This rank is automatically inserted when a sample is scheduled.
-  
-   See also [[f-sample]]."
-
-  (long 1e9))
-
-
-
-
 (defn f-end
 
   "Is mainly used to end an an infinite flow (see [[f-infinite]]).
@@ -1562,21 +1516,49 @@
 
   [ctx]
 
-  (let [flow-path (f-path (path ctx))
-        flow-leaf (get-in ctx
-                          flow-path)
-        ctx-2     (void/dissoc-in ctx
-                                  flow-path)]
+  (let [current-path (path ctx)
+        flow-path    (f-path current-path)
+        flow-leaf    (get-in ctx
+                             flow-path)
+        ctx-2        (void/dissoc-in ctx
+                                     flow-path)]
     (if-some [q (not-empty (::queue flow-leaf))]
-      (-exec-q (::handler (meta ctx-2))
-               (assoc-in ctx-2
-                         [::e-flat
-                          ::ranks]
-                         (assoc (::ranks-init flow-leaf)
-                                0
-                                (first (ranks ctx-2))))
-               q)
+      (assoc-in ctx-2
+                [::e-flat
+                 ::queue]
+                q)
       ctx-2)))
+
+
+
+
+(defn- -f-sample
+
+  ;; Cf. [[f-sample]]
+
+  [handler ctx ptime path node]
+
+  (if-some [flow (::flow node)]
+    (let [ctx-2 (handler (assoc ctx
+                                ::e-flat
+                                {::path  path
+                                 ::ranks (assoc (::ranks-init node)
+                                                 0
+                                                 ptime)})
+                         flow)]
+      (if-some [q (not-empty (::queue (::e-flat ctx-2)))]
+        (-exec-q handler
+                 ctx-2
+                 q)
+        ctx-2))
+     (reduce-kv (fn deeper [ctx-2 k node-next]
+                  (-f-sample ctx
+                             ptime
+                             (conj path
+                                   k)
+                             node-next))
+                ctx
+                node)))
 
 
 
@@ -1600,6 +1582,8 @@
    [::f-sample]
    ```"
 
+  ;; TODO. Doc ctx->ranks
+
   ([]
 
    f-sample)
@@ -1607,32 +1591,23 @@
 
   ([ctx]
 
-   (f-sample ctx
-             ranks))
+   (let [current-path (path ctx)]
+     (-f-sample (handler ctx)
+                (void/dissoc-in ctx
+                                (cons ::flows-dedup
+                                      current-path))
+                (::ptime ctx)
+                current-path
+                (get-in ctx
+                        (f-path current-path)))))
 
 
   ([ctx ctx->ranks]
 
-   (f-sample ctx
-             ctx->ranks
-             (path ctx)))
-
-
-  ([ctx ctx->ranks path]
-
-   (if-some [ranks (ctx->ranks ctx)]
-     (let [ranks-2 (into [(first ranks)
-                            f-ranks]
-                           (rest ranks))]
-       (e-assoc ctx
-                ranks-2
-                nil
-                (not-empty (dsim.util/assoc-shortest (e-get ctx
-                                                            ranks-2
-                                                            path)
-                                                     path
-                                                     nil))))
-     ctx)))
+   (e-conj ctx
+           (ctx->ranks ctx)
+           (path ctx)
+           f-sample)))
 
 
 
@@ -1641,21 +1616,19 @@
 
   ;; Associates a new flow and everything it needs for resuming the queue later.
 
-  ([ctx flow]
+  [ctx flow]
 
-   (-f-assoc ctx
-             flow
-             nil))
-
-
-  ([ctx flow hmap]
-
+  (let [current-path (path ctx)
+        flow-leaf    {::flow       flow
+                      ::ranks-init (ranks ctx)
+                      ::queue      (e-get ctx)}]
    (-> ctx
-       (assoc-in (f-path (path ctx))
-                 (merge hmap
-                        {::flow       flow
-                         ::ranks-init (ranks ctx)
-                         ::queue      (e-get ctx)}))
+       (assoc-in (f-path current-path)
+                 flow-leaf)
+       (assoc-in (cons ::flows-dedup
+                       current-path)
+                 flow-leaf)
+       f-sample
        e-dissoc)))
 
 
@@ -1727,11 +1700,10 @@
 
   ([ctx flow]
 
-   (-> ctx
-       (-f-assoc (partial -f-relative 
-                          (::ptime ctx)
-                          flow))
-       f-sample)))
+   (-f-assoc ctx
+             (partial -f-relative 
+                      (::ptime ctx)
+                      flow))))
 
 
 
@@ -1772,7 +1744,6 @@
 
   (-> ctx
       (-f-assoc norm-flow)
-      f-sample 
       (f-sample (wq-ptime+ duration))))
 
 
@@ -1958,6 +1929,7 @@
 
       ([k]
 
+       (println :HANDLER-K k)
        (or (get k->f-2
                 k)
            (throw (ex-info "Function not found in handler"
@@ -2023,13 +1995,13 @@
                      (-norm-flow ctx
                                  start
                                  duration
-                                 (fn handle-flow [ctx]
+                                 (fn flow [ctx]
                                    (handler ctx
                                             op-flow))
                                  identity))
    ::-f-infinite   (fn handle [ctx start op-flow]
                      (-f-relative start
-                                  (fn handle-flow [ctx]
+                                  (fn flow [ctx]
                                     (handler ctx
                                              op-flow))
                                   ctx))
@@ -2037,7 +2009,7 @@
                      (-norm-flow ctx
                                  start
                                  duration
-                                 (fn handle-flow [ctx]
+                                 (fn flow [ctx]
                                    (handler ctx
                                             op-flow))
                                  (-fn-schedule-sample (fn handle-ranks [ctx]
@@ -2077,9 +2049,17 @@
                                               flow]))
    ::f-infinite     (fn handle [ctx op-flow]
                       (-> ctx
-                          (-f-assoc [::-f-infinite (::ptime ctx) op-flow])
-                          f-sample))
-   ::f-sample       f-sample
+                          (-f-assoc [::-f-infinite (::ptime ctx) op-flow])))
+   ::f-sample       (fn handle
+
+                      ([ctx]
+                       (f-sample ctx))
+
+                      ([ctx op-ctx->ranks]
+                       (f-sample ctx
+                                 (fn ctx->ranks [ctx]
+                                   (handler ctx
+                                            op-ctx->ranks)))))
    ::f-sampled      (fn handle [ctx op-ctx->ranks duration flow]
                       (-f-finite ctx
                                  duration

@@ -1251,6 +1251,8 @@
    [::wq-delay [::wq-ptime+ 500]]
    ```"
 
+   ;; TODO. Document that returning nil ranks does not do anything.
+
   ([ctx->ranks]
 
    (fn event [ctx]
@@ -1260,9 +1262,11 @@
 
   ([ctx ctx->ranks]
   
-   (e-dissoc (e-conj ctx
-                     (ctx->ranks ctx)
-                     (e-get ctx)))))
+   (if-some [ranks (ctx->ranks ctx)]
+     (e-dissoc (e-conj ctx
+                       ranks
+                       (e-get ctx)))
+     ctx)))
 
 
 

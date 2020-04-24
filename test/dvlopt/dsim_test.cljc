@@ -733,9 +733,7 @@
 ;; These functions are not tested explicitly because they are heavily used by other ones we do test
 ;; or because their implementation is really straightforward :
 ;;
-;;   `wq-breaker`
 ;;   `wq-capture`
-;;   `wq-copy`
 ;;   `wq-do!`
 ;;   `wq-meta`
 ;;   `wq-mirror`

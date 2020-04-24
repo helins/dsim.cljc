@@ -743,9 +743,9 @@
 
   ;; Executes a single unit event.
   ;;
-  ;; If it throws, it try to find an error handler for the present queue or outers one
-  ;; present in the stack. If an error handler returns nil, meaning it does not know what
-  ;; to do, the pursuit continues.
+  ;; If it throws, it tries to find an error handler from the present queue or outers one
+  ;; in the stack. If an error handler returns nil, meaning it does not know what to do,
+  ;; the pursuit continues.
 
   [handler ctx q ef]
 
@@ -1143,32 +1143,6 @@
 ;; Arities are redundant but more user-friendly and API-consistent than partial application.
 ;; Let us not be too smart by imagining some evil macro.
 ;;
-
-
-(defn wq-breaker
-
-  "Removes the working queue if `pred?`, called with the current `ctx`, returns true.
-  
-   As an operation (see [[op-applier]]):
-   ```clojure
-   [::wq-breaker [:your-pred]]
-   ```"
-
-  ([pred?]
-
-   (fn event [ctx]
-     (wq-breaker ctx
-                 pred?)))
-
-
-
-  ([ctx pred?]
-
-   (if (pred? ctx)
-     ctx
-     (e-dissoc ctx))))
-
-
 
 
 (defn wq-capture
@@ -1747,7 +1721,7 @@
 
 (defn- -norm-flow
 
-  ;; Normalizes a finite-flow.
+  ;; Normalizes ptime to be between 0 and 1 for a finite-flow.
   ;;
   ;; See [[f-finite]] and [[f-sample]].
 
@@ -1952,8 +1926,7 @@
   
    See [[op-std]] for a map of event function automatically injected.
 
-   It does not only contains events but also other functions represented as operations (eg. see [[wq-breaker]]
-   or [[wq-mirror]].
+   It does not only contains events but also other functions represented as operations (eg. see [[wq-mirror]]).
   
 
    If really needed, one can use another format, hence another data event handler. To do so, one must:
@@ -1993,7 +1966,6 @@
    It contains the following useful `wq-XXX` functions:
 
    ```clojure
-   ::wq-breaker
    ::wq-capture
    ::wq-delay
    ::wq-do!
@@ -2053,11 +2025,6 @@
                                  (-fn-schedule-sample (fn handle-ranks [ctx]
                                                         (handler ctx
                                                                  op-ctx->ranks)))))
-   ::wq-breaker     (fn handle [ctx op-pred?]
-                      (wq-breaker ctx
-                                  (fn pred? [ctx]
-                                    (handler ctx
-                                             op-pred?))))
    ::wq-capture     wq-capture
    ::wq-delay       (fn hanlde [ctx op-ctx->ranks]
                       (wq-delay ctx

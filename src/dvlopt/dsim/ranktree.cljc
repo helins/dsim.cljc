@@ -357,7 +357,7 @@
 
 (defn- -pop
 
-  ""
+  ;; Cf. [[pop]]
 
   [node ranks]
 

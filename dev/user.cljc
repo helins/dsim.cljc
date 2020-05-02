@@ -28,4 +28,7 @@
 
 (comment
 
+
+  (fdat/register serializable)
+
   )

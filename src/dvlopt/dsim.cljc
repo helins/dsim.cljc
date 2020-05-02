@@ -1488,29 +1488,44 @@
 
 
 
-(defn- -f-sample
+(defn- -sample
+
+  ;; Samples a flow.
+
+  [ctx ptime path ranks-init flow]
+
+  (let [ctx-2 (flow (assoc ctx
+                           ::e-flat
+                           {::path  path
+                            ::ranks (assoc ranks-init
+                                           0
+                                             ptime)}))]
+     (if-some [q (not-empty (e-get ctx-2))]
+       (-exec-q ctx-2
+                q)
+       ctx-2)))
+
+
+
+
+(defn- -sample-walk
 
   ;; Cf. [[f-sample]]
 
   [ctx ptime path node]
 
   (if-some [flow (::flow node)]
-    (let [ctx-2 (flow (assoc ctx
-                             ::e-flat
-                             {::path  path
-                              ::ranks (assoc (::ranks-init node)
-                                              0
-                                              ptime)}))]
-      (if-some [q (not-empty (::queue (::e-flat ctx-2)))]
-        (-exec-q ctx-2
-                 q)
-        ctx-2))
+    (-sample ctx
+             ptime
+             path
+             (::ranks-init node)
+             flow)
      (reduce-kv (fn deeper [ctx-2 k node-next]
-                  (-f-sample ctx
-                             ptime
-                             (conj path
-                                   k)
-                             node-next))
+                  (-sample-walk ctx
+                                ptime
+                                (conj path
+                                      k)
+                                node-next))
                 ctx
                 node)))
 
@@ -1546,14 +1561,18 @@
  
    ([ctx]
  
-    (let [current-path (path ctx)]
-      (-f-sample (void/dissoc-in ctx
-                                 (cons ::flows-dedup
-                                       current-path))
-                 (::ptime ctx)
-                 current-path
-                 (get-in ctx
-                         (f-path current-path)))))
+    (let [current-path (path ctx)
+          dedup-path   (cons ::flows-dedup
+                             current-path)]
+      (if (get-in ctx
+                  dedup-path)
+        (-sample-walk (void/dissoc-in ctx
+                                      dedup-path)
+                      (::ptime ctx)
+                      current-path
+                      (get-in ctx
+                              (f-path current-path)))
+        ctx)))
  
  
    ([ctx ctx->ranks]
@@ -1574,17 +1593,17 @@
 
   [ctx flow]
 
-  (let [current-path (path ctx)
-        flow-leaf    {::flow       flow
-                      ::ranks-init (ranks ctx)
-                      ::queue      (e-get ctx)}]
+  (let [current-path  (path ctx)
+        current-ranks (ranks ctx)]
    (-> ctx
        (assoc-in (f-path current-path)
-                 flow-leaf)
-       (assoc-in (cons ::flows-dedup
-                       current-path)
-                 flow-leaf)
-       f-sample
+                 {::flow       flow
+                  ::ranks-init current-ranks
+                  ::queue      (e-get ctx)})
+       (-sample (::ptime ctx)
+                current-path
+                current-ranks
+                flow)
        e-dissoc)))
 
 
@@ -1656,7 +1675,7 @@
 
 (defn- -f-finite
 
-  ;; Cf. [[f-finite]]
+  ;; Cf. [[f-finite]] and [[f-sampled]]
 
   [ctx duration flow after-sample]
 
@@ -1758,7 +1777,7 @@
 
 
 
-;;;;;;;;;; @[fdat]  Serialization via the `dvlopt.fdat` library
+;;;;;;;;;; @[fdat]  Serialization of whole contexts (events and flows included) via the `dvlopt.fdat` library
 
 
 (def serializable
@@ -1780,6 +1799,3 @@
    wq-ptime+
    wq-replay
    wq-sreplay])
-
-
-(fdat/register serializable)

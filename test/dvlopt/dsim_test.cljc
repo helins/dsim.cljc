@@ -7,7 +7,8 @@
             [dvlopt.dsim                 :as dsim]
             [dvlopt.fdat                 :as fdat #?(:clj  :refer
                                                      :cljs :refer-macros) [?]]
-            [dvlopt.fdat.plugins.transit :as fdat.plugins.transit])
+            [dvlopt.fdat.plugins.transit :as fdat.plugins.transit]
+            [dvlopt.rktree.transit       :as rktree.transit])
   #?(:clj (:import (clojure.lang PersistentQueue
                                  PersistentTreeMap)
                    (java.io ByteArrayInputStream
@@ -28,12 +29,9 @@
   (let [options (-> (fdat.plugins.transit/writer-options)
                     (update :handlers
                              merge
-                             {PersistentQueue   (transit/write-handler (constantly "queue")
-                                                                       vec)
-                              PersistentTreeMap (transit/write-handler (constantly "sorted-map")
-                                                                       (partial reduce-kv
-                                                                                assoc
-                                                                                {}))})
+                             rktree.transit/write-handler
+                             {PersistentQueue (transit/write-handler (constantly "queue")
+                                                                     vec)})
                     (update :transform
                             (partial comp
                                      transit/write-meta)))]
@@ -60,12 +58,10 @@
     (transit/reader #?(:clj (ByteArrayInputStream. (.toByteArray x)))
                     :json
                     {:handlers (merge (fdat.plugins.transit/handler-in)
-                                      {"queue"      (transit/read-handler (fn deserialize [x]
-                                                                            (into (dsim/queue)
-                                                                                  x)))
-                                       "sorted-map" (transit/read-handler (partial reduce-kv
-                                                                                   assoc
-                                                                                   (sorted-map)))})})
+                                      rktree.transit/read-handler
+                                      {"queue" (transit/read-handler (fn deserialize [x]
+                                                                       (into (dsim/queue)
+                                                                             x)))})})
     #?(:cljs x)))
 
 
@@ -289,7 +285,6 @@
  
    [_ctx n _ptime]
  
-   (println :INC n _ptime  _ctx)
    (inc n)))
 
 

@@ -6,10 +6,10 @@
 
   {:author "Adam Helinski"}
 
-  (:require [dvlopt.dsim.ranktree :as dsim.ranktree]
-            [dvlopt.dsim.util     :as dsim.util]
+  (:require [dvlopt.dsim.util     :as dsim.util]
             [dvlopt.fdat          :as fdat #?(:clj  :refer       
                                               :cljs :refer-macros) [?]]
+            [dvlopt.rktree        :as rktree]
             [dvlopt.void          :as void])
   #?(:clj (:import (clojure.lang ExceptionInfo
                                  PersistentQueue))))
@@ -395,8 +395,8 @@
 
    (update ctx
            ::events
-           (fnil dsim.ranktree/assoc
-                 (dsim.ranktree/tree))
+           (fnil rktree/assoc
+                 (rktree/tree))
            ranks
            path
            event)))
@@ -474,8 +474,8 @@
                 ::events
                 (fn -e-dissoc [events]
                   (some-> events
-                          (dsim.ranktree/dissoc ranks
-                                                path))))))
+                          (rktree/dissoc ranks
+                                         path))))))
 
 
 
@@ -567,10 +567,10 @@
 
   ([ctx ranks path not-found]
 
-   (dsim.ranktree/get (::events ctx)
-                      ranks
-                      path
-                      not-found)))
+   (rktree/get (::events ctx)
+               ranks
+               path
+               not-found)))
 
 
 
@@ -707,8 +707,8 @@
 
    (void/update ctx
                 ::events
-                (fnil dsim.ranktree/update
-                      (dsim.ranktree/tree))
+                (fnil rktree/update
+                      (rktree/tree))
                 ranks
                 path
                 f)))
@@ -925,13 +925,12 @@
                             events)))
 
                     ([ctx events]
-                     (dsim.ranktree/pop-walk ctx
-                                             events
-                                             (fn reattach-tree [ctx events-2]
-                                               (void/assoc-strict ctx
-                                                                  ::events
-                                                                  events-2))
-                                             -exec-e)))})
+                     (rktree/pop-walk events
+                                      (fn update-events [events-2]
+                                        (void/assoc-strict ctx
+                                                           ::events
+                                                           events-2))
+                                      -exec-e)))})
 
 
 
@@ -1577,10 +1576,12 @@
  
    ([ctx ctx->ranks]
  
-    (e-conj ctx
-            (ctx->ranks ctx)
-            (path ctx)
-            f-sample))))
+    (if-some [ranks (ctx->ranks ctx)]
+      (e-conj ctx
+              ranks
+              (path ctx)
+              f-sample)
+      ctx))))
 
 
 

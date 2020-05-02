@@ -1058,3 +1058,18 @@
              (map :writer
                   h))
           "Respecting the timing of transitions between flows")))
+
+
+
+
+(t/deftest sampler
+
+  (t/is (= (ctx-jump 11)
+           (last (history-DE
+                   (dsim/e-conj (ctx-init 0)
+                                [1]
+                                [:n]
+                                (dsim/queue (dsim/sampler ptime+1)
+                                            (dsim/f-finite 10
+                                                           event-inc))))))
+        "Sampler sample when expected"))

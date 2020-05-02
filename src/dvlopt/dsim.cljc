@@ -1019,8 +1019,8 @@
                                ::ptime-next ptime-next}))
               (-> ctx
                   period-start
-                  (assoc ::flows-dedup
-                         (::flows ctx))
+                  (void/assoc ::flows-dedup
+                              (::flows ctx))
                   (before-2 ptime-next)
                   (run events)
                   (run-ptime ptime-next))))))
@@ -1552,6 +1552,7 @@
     ```"
  
    ;; TODO. Doc ctx->ranks
+   ;; TODO. Re-introduce rel-conj
  
    ([]
  
@@ -1681,6 +1682,8 @@
   [ctx duration flow after-sample]
 
   (let [start      (::ptime ctx)
+        end        (+ start
+                      duration)
         norm-ptime (partial minmax-norm
                             start
                             duration)]
@@ -1697,9 +1700,10 @@
                                        ::e-flat
                                        dissoc
                                        ::ptime))
-                        (after-sample ctx-3
-                                      (+ start
-                                         duration))))))
+                        (if after-sample
+                          (after-sample ctx-3
+                                        end)
+                          ctx-3)))))
         (f-sample (wq-ptime+ duration)))))
 
 
@@ -1728,12 +1732,12 @@
                 flow)))
  
  
-   ([flow duration ctx]
+   ([duration flow ctx]
  
     (-f-finite ctx
                duration
                flow
-               identity))))
+               nil))))
 
 
 
@@ -1778,6 +1782,59 @@
 
 
 
+(? 
+ (defn- -sampler
+ 
+   ""
+ 
+   ([ctx->ranks path]
+
+    (? (partial -sampler
+                ctx->ranks
+                path)))
+
+
+   ([ctx->ranks path ctx]
+ 
+    (let [ctx-2 (f-sample ctx)]
+      (if-let [ranks (and (not (identical? ctx-2
+                                           ctx))
+                          (ctx->ranks ctx-2))]
+        (e-conj ctx-2
+                ranks
+                path
+                (-sampler ctx->ranks
+                          path))
+        ctx-2)))))
+
+
+
+
+(?
+ (defn sampler
+ 
+   ""
+ 
+   ([ctx->ranks]
+ 
+    (? (partial sampler
+                ctx->ranks)))
+ 
+ 
+   ([ctx->ranks ctx]
+ 
+    (if-some [ranks (ctx->ranks ctx)]
+      (let [current-path (path ctx)]
+        (e-conj ctx
+                ranks
+                current-path
+                (-sampler ctx->ranks
+                          current-path)))
+      ctx))))
+
+
+
+
 ;;;;;;;;;; @[fdat]  Serialization of whole contexts (events and flows included) via the `dvlopt.fdat` library
 
 
@@ -1785,12 +1842,14 @@
 
   ""
 
-  [e-stop
+  [-sampler
+   e-stop
    f-finite
    f-infinite
    f-sample
    f-sampled
    mirror
+   sampler
    stop
    wq-capture
    wq-delay

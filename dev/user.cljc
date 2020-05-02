@@ -2,11 +2,13 @@
 
   "For daydreaming in the REPL." 
 
-  (:require [clojure.repl]
+  (:require [clojure.core.async          :as a]
+            [clojure.repl]
             [clojure.test                :as t]
             [cognitect.transit           :as transit]
             [criterium.core              :as C]
             [dvlopt.dsim                 :as dsim]
+            [dvlopt.dsim.transit         :as dsim.transit]
             [dvlopt.dsim.util            :as dsim.util]
             [dvlopt.dsim-test            :as dsim-test]
             [dvlopt.dsim.util-test       :as dsim.util-test]

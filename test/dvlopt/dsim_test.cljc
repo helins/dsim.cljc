@@ -5,13 +5,12 @@
   (:require [clojure.test                :as t]
             [cognitect.transit           :as transit]
             [dvlopt.dsim                 :as dsim]
+            [dvlopt.dsim.transit         :as dsim.transit]
             [dvlopt.fdat                 :as fdat #?(:clj  :refer
                                                      :cljs :refer-macros) [?]]
             [dvlopt.fdat.plugins.transit :as fdat.plugins.transit]
             [dvlopt.rktree.transit       :as rktree.transit])
-  #?(:clj (:import (clojure.lang PersistentQueue
-                                 PersistentTreeMap)
-                   (java.io ByteArrayInputStream
+  #?(:clj (:import (java.io ByteArrayInputStream
                             ByteArrayOutputStream))))
 
 
@@ -26,24 +25,15 @@
 
   [x]
 
-  (let [options (-> (fdat.plugins.transit/writer-options)
-                    (update :handlers
-                             merge
-                             rktree.transit/write-handler
-                             {PersistentQueue (transit/write-handler (constantly "queue")
-                                                                     vec)})
-                    (update :transform
-                            (partial comp
-                                     transit/write-meta)))]
-    #?(:clj  (let [out (ByteArrayOutputStream. 512)]
-               (transit/write (transit/writer out
-                                              :json
-                                              options)
-                              x)
-               out)
-       :cljs (transit/write (transit/writer :json
-                                            options)
-                            x))))
+  #?(:clj  (let [out (ByteArrayOutputStream. 512)]
+             (transit/write (transit/writer out
+                                            :json
+                                            (dsim.transit/writer-options))
+                            x)
+             out)
+     :cljs (transit/write (transit/writer :json
+                                          (dsim.transit/writer-options))
+                          x)))
 
 
 
@@ -57,11 +47,7 @@
   (transit/read
     (transit/reader #?(:clj (ByteArrayInputStream. (.toByteArray x)))
                     :json
-                    {:handlers (merge (fdat.plugins.transit/handler-in)
-                                      rktree.transit/read-handler
-                                      {"queue" (transit/read-handler (fn deserialize [x]
-                                                                       (into (dsim/queue)
-                                                                             x)))})})
+                    {:handlers (dsim.transit/read-handlers)})
     #?(:cljs x)))
 
 

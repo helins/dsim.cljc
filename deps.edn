@@ -15,7 +15,8 @@
   {:extra-deps  {com.taoensso/nippy        {:mvn/version "2.14.0"}
                  criterium                 {:mvn/version "0.4.5"}
                  dvlopt/fdat.plugins.nippy {:mvn/version "0.0.0-beta2"}
-                 kixi/stats                {:mvn/version "0.5.2"}}
+                 kixi/stats                {:mvn/version "0.5.2"}
+                 org.clojure/core.async    {:mvn/version "1.1.587"}}
    :extra-paths ["dev"]}
 
   :jar
@@ -34,4 +35,6 @@
                  dvlopt/rktree.transit       {:mvn/version "0.0.0-beta0"}
                  lambdaisland/kaocha         {:mvn/version "1.0-612"}
                  lambdaisland/kaocha-cljs    {:mvn/version "0.0-71"}}
-   :extra-paths ["test"]}}}
+   :extra-paths ["test"
+                 "transit/src"
+                 "transit/test"]}}}

@@ -27,7 +27,7 @@
 ;; @[ngin]    Building time-based event engines
 ;; @[wq]      Relative to the currently executed queue (aka. the "working queue")
 ;; @[flows]   Creating and managing flows
-;; @[serial]  Data unit events and serialization
+;; @[fdat]    Serialization of whole contexts (events and flows included) via the `dvlopt.fdat` library
 
 
 
@@ -35,17 +35,18 @@
 ;;;;;;;;;; MAYBEDO
 
 
-;;  Hack persistent queues so that they can also act as a stack?
-;;  
-;;  The front is implemented as a seq, so prepending is efficient, but the seq is
-;;  package private. Relying on non-public features is not recommended. On the other
-;;  hand, it is fairly certain the implementation will stay like this.
+;; Hack persistent queues so that they can also act as a stack?
+;; 
+;; The front is implemented as a seq, so prepending is efficient, but the seq is
+;; package private. Relying on non-public features is not recommended. On the other
+;; hand, it is fairly certain the implementation will stay like this.
 
 
-;;  Parallelize by ranks?
+;; Parallelize by ranks?
 ;;
-;;  By definition, all events with the same ranking  are independent, meaning that they
-;;  can be parallelized without a doubt if needed.
+;; By definition, all events with the same ranking  are independent, meaning that they
+;; can be parallelized without a doubt if needed. But due to the non-blocking nature
+;; JS, it is hard to find a portable solution without buying completely into core.async.
 
 
 
@@ -750,7 +751,7 @@
 
 (defn- -catched
 
-  ;; Used by [[-exec-eu]] which is not recompilable at the REPL (because of reader conditional).
+  ;; Used by [[-exec-ef]] which is not recompilable at the REPL (because of reader conditional).
 
   [ctx q err]
 
@@ -774,7 +775,7 @@
 
 
 
-(defn- -exec-eu
+(defn- -exec-ef
 
   ;; Executes a single event unit.
   ;;
@@ -818,7 +819,7 @@
                         [(e-dissoc ctx)
                          q-2])
              event)
-      (let [ctx-2 (-exec-eu (e-assoc ctx
+      (let [ctx-2 (-exec-ef (e-assoc ctx
                                      q-2)
                             q-2
                             event)

@@ -205,5 +205,4 @@
                                             {:n     node
                                              :path  path
                                              :ranks ranks}))))
-        "")
-  )
+        "Popping and acting on the first ranked node"))

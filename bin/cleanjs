@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+echo "Cleaning JS test stuf..."
+rm -rf .cljs_node_repl out/ .cpcache

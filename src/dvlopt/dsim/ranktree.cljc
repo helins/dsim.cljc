@@ -84,7 +84,9 @@
 
 (defn tree
 
-  "Simply provides a sorted map, reminding that a ranktree always start with at least one sorted map."
+  "Simply provides a sorted map, reminding that a ranktree always start with at least one sorted map.
+  
+   Should be used just in case the implementation changes and uses something else than Clojure's sorted maps."
 
   []
 

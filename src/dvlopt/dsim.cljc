@@ -216,14 +216,14 @@
 (defn f-path
 
   "All flows are kept as a tree in the context. It is useful to be able to locate them
-   if some state specific to a flow need to be maintained. Indeed, each flow is kept in a
+   when some state specific to a flow need to be maintained. Indeed, each flow is kept in a
    map which contains elements needed to handle it. This map is removed when the flow ends,
    meaning that whatever the user kept there for the duration of the flow will be properly
    garbage collected when the flow ends.
 
    | Arity | Means |
    |---|---|
-   | 0 | Returns path to the root of the tree (ie. all flows) |
+   | 0 | Returns path to the root of the flow tree (ie. all flows) |
    | 1 | Locates `path` in the flow tree |
   
    See also [[f-infinite]]."
@@ -680,7 +680,7 @@
   
    Works like standard `update` but tailored for the current working queue or the event tree.
    
-   Returnin nil will whatever is at that location.
+   Returning nil will remove whatever is at that location.
   
    Arities follow similar convention as [[e-assoc]]."
 
@@ -1248,7 +1248,6 @@
 
 (?
  (defn wq-exec
-   ;; 1bb
  
    "Executes the given event queue `q` in isolation from the rest of the working queue.
    
@@ -1591,20 +1590,6 @@
 
 
 
-(defn- -f-relative
-
-  ;; Cf. [[f-infinite]]
-
-  [start flow ctx]
-
-  (flow (assoc-in ctx
-                  [::e-flat
-                   ::ptime]
-                  (- (::ptime ctx)
-                     start))))
-
-
-
 (?
  (defn f-infinite 
  
@@ -1658,37 +1643,13 @@
    ([flow ctx]
  
     (-f-assoc ctx
-              (partial -f-relative 
-                       (::ptime ctx)
-                       flow)))))
-
-
-
-
-(defn- -norm-flow
-
-  ;; Normalizes ptime to be between 0 and 1 for a finite-flow.
-  ;;
-  ;; See [[f-finite]] and [[f-sample]].
-
-  [ctx start duration flow after-sample]
-
-  (let [e-ptime (minmax-norm start
-                             duration
-                             (::ptime ctx))
-        ctx-2   (flow (assoc-in ctx
-                                [::e-flat
-                                 ::ptime]
-                                e-ptime))]
-    (if (>= e-ptime
-            1)
-      (f-end (update ctx-2
-                     ::e-flat
-                     dissoc
-                     ::ptime))
-      (after-sample ctx-2
-                    (+ start
-                       duration)))))
+              (let [start (::ptime ctx)]
+                (fn relative-flow [ctx-2]
+                  (flow (assoc-in ctx-2
+                                  [::e-flat
+                                   ::ptime]
+                                  (- (::ptime ctx-2)
+                                     start)))))))))
 
 
 
@@ -1697,11 +1658,29 @@
 
   ;; Cf. [[f-finite]]
 
-  [ctx duration norm-flow]
+  [ctx duration flow after-sample]
 
-  (-> ctx
-      (-f-assoc norm-flow)
-      (f-sample (wq-ptime+ duration))))
+  (let [start      (::ptime ctx)
+        norm-ptime (partial minmax-norm
+                            start
+                            duration)]
+    (-> ctx
+        (-f-assoc (fn normalized-flow [ctx-2]
+                    (let [e-ptime (norm-ptime (::ptime ctx-2))
+                          ctx-3   (flow (assoc-in ctx-2
+                                                  [::e-flat
+                                                   ::ptime]
+                                                  e-ptime))]
+                      (if (>= e-ptime
+                              1)
+                        (f-end (update ctx-3
+                                       ::e-flat
+                                       dissoc
+                                       ::ptime))
+                        (after-sample ctx-3
+                                      (+ start
+                                         duration))))))
+        (f-sample (wq-ptime+ duration)))))
 
 
 
@@ -1733,29 +1712,8 @@
  
     (-f-finite ctx
                duration
-               (let [start (::ptime ctx)]
-                 (fn norm-flow [ctx]
-                   (-norm-flow ctx
-                               start
-                               duration
-                               flow
-                               identity)))))))
-
-
-
-(defn- -fn-schedule-sample
-
-  ;; Rescheduling used by [[f-sampled]].
-
-  [ctx->ranks]
-
-  (fn schedule-sampling [ctx ptime-end]
-    (f-sample ctx
-              (comp (fn before-end [[ptime-scheduled :as ranks]]
-                      (when (some-> ptime-scheduled
-                                    (< ptime-end))
-                        ranks))
-                    ctx->ranks))))
+               flow
+               identity))))
 
 
 
@@ -1788,14 +1746,14 @@
   
     (-f-finite ctx
                duration
-               (let [start           (::ptime ctx)
-                     schedule-sample (-fn-schedule-sample ctx->ranks)]
-                 (fn norm-flow [ctx]
-                   (-norm-flow ctx
-                               start
-                               duration
-                               flow
-                               schedule-sample)))))))
+               flow
+               (fn schedule-sampling [ctx ptime-end]
+                 (f-sample ctx
+                           (comp (fn before-end [[ptime-scheduled :as ranks]]
+                                   (when (some-> ptime-scheduled
+                                                 (< ptime-end))
+                                     ranks))
+                                 ctx->ranks)))))))
 
 
 

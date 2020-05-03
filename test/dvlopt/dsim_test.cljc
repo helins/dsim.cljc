@@ -229,7 +229,7 @@
 
 (def ptime+1
 
-  (dsim/ranks+ 1))
+  (dsim/rank+ 1))
 
 
 
@@ -648,12 +648,12 @@
 
 
 (def history
-     (historic (dsim/engine)))
+     (historic (dsim/basic-engine)))
 
 
 
 
-(t/deftest engine
+(t/deftest basic-engine
 
   (t/is (= '()
            (history nil))
@@ -729,7 +729,7 @@
 
 
 (def history-DE
-     (historic (dsim/engine-ptime {::dsim/before (fn before [ctx]
+     (historic (dsim/ptime-engine {::dsim/before (fn before [ctx]
                                                    (update ctx
                                                            :before
                                                            inc))
@@ -740,7 +740,7 @@
 
 
 
-(t/deftest engine-ptime
+(t/deftest ptime-engine
 
   (t/is (= '()
            (history-DE nil))
@@ -851,7 +851,7 @@
 
 (t/deftest wq-delay
 
-  ;; Tests `ranks+` as well.
+  ;; Tests `rank+` as well.
 
   (let [delay-1u (dsim/wq-delay ptime+1)
         h        (history-DE (dsim/e-assoc (ctx-init 0)
@@ -920,7 +920,7 @@
                                      [:n]
                                      (dsim/queue dsim/wq-capture
                                                  event-inc
-                                                 (dsim/wq-delay (dsim/ranks+ 1))
+                                                 (dsim/wq-delay (dsim/rank+ 1))
                                                  (dsim/wq-replay pred?))))]
       (t/is (= 11
                (count h))

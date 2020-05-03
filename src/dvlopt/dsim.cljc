@@ -1,8 +1,19 @@
 (ns dvlopt.dsim
 
-  "Idiomatic, purely-functional discrete event simulation and more.
+  "Idiomatic, purely-functional discrete event simulation and much more.
   
-   See README first in order to make sense of all this. It provides definitions and rationale for concepts."
+   See README first in order to make sense of all this. It provides definitions and rationale for concepts.
+  
+  
+   Arity convention for `e-XXX` functions
+   ======================================
+  
+   Arities for `e-XXX` functions follow the same convention. Providing both `ranks` and `path` refers explicitely
+   to a prioritized location in the event tree. Without `path`, the path of the currently executing flat event is
+   retrieved (ie. acts with the given `ranks` relative to the current `path`). Not providing either refers explicitely
+   to the current flat event and its working queue.
+   
+  "
 
   {:author "Adam Helinski"}
 
@@ -44,7 +55,7 @@
 ;; In CLJS, turns out the seq is readily accessible as nothing is really private.
 
 
-;; Parallelize by ranks?
+;; Async + parallelize by ranks?
 ;;
 ;; By definition, all events with the same ranking  are independent, meaning that they
 ;; can be parallelized without a doubt if needed. But due to the non-blocking nature of
@@ -70,7 +81,7 @@
 
 (defn queue
 
-  "Clojure has persistent queues but no easy way to create them.
+  "Clojure has persistent queues but no straightforward way to create them.
   
    Here is one."
 
@@ -130,7 +141,7 @@
 
 
 
-;;;;;;;;;; @[scale]  Scaling numerical values
+;;;;;;;;;; @[scale]  Linear scaling of numerical values
 
 
 (defn- -minmax-denorm
@@ -195,7 +206,7 @@
 
   "Min-max normalization, linearly scales `x` to fit between 0 and 1 inclusive.
 
-   See [[scale]] Arity 3, which is the opposite operation.
+   See [[scale]](arity 3), which is the opposite operation.
   
    ```clojure
    (min-max-norm 20
@@ -219,18 +230,14 @@
 
 (defn flow-path
 
-  "All flows are kept as a tree in the context. It is useful to be able to locate them
-   when some state specific to a flow need to be maintained. Indeed, each flow is kept in a
-   map which contains elements needed to handle it. This map is removed when the flow ends,
-   meaning that whatever the user kept there for the duration of the flow will be properly
-   garbage collected when the flow ends.
+  "Returns the path in the flow tree of the currently executing flow.
 
-   | Arity | Means |
-   |---|---|
-   | 0 | Returns path to the root of the flow tree (ie. all flows) |
-   | 1 | Locates `path` in the flow tree |
-  
-   See also [[infinite]]."
+   When a flow is created, it is added to the flow tree (`[::flows]` in `ctx`) using [[path]].
+   When a flow ends, it is removed from the flow tree.
+
+   Instead of polluting the global state in the `ctx`, if a flow needs some state in order to
+   work during its lifetime, this is the perfect place to keep it as it will be removed and
+   garbage collected when the flow ends."
 
   ([ctx]
 
@@ -242,7 +249,7 @@
 
 (defn flowing?
 
-  "Is the given context or some part of it currently flowing?"
+  "Is the given `ctx` or some part of it currently flowing?"
 
   ([ctx]
 
@@ -273,7 +280,7 @@
 
 (defn path
 
-  "Returns the path associated at [::e-flat ::path]."
+  "Returns the path of the currently executing flat event (ie. under `[::e-flat ::path]`)."
 
   [ctx]
 
@@ -284,7 +291,10 @@
 
 (defn ptime
 
-  "Returns either the ptime at [::e-flat ::ptime] (notably useful for [[finite]] or [[sampled-finite]]
+  "Returns either the `ptime` of the currently executing flat event (ie. under `[::e-flat ::ptime]`) or
+   the global `ptime` in the `ctx` (ie. under `[::ptime]`).
+  
+  Returns either the ptime at `[::e-flat ::ptime]` (notably useful for [[finite]] or [[sampled-finite]]
    or, if there is none, at [::ptime]."
 
   [ctx]
@@ -297,7 +307,7 @@
 
 (defn ranks
 
-  "Returns the ranks at [::e-flat ::ranks]."
+  "Returns the ranks of the currently executing flat event (ie. under `[::e-flat ::ranks]`)."
 
   [ctx]
 
@@ -307,66 +317,75 @@
 
 
 (?
- (defn- -ranks+-mono
+ (defn rank+
+ 
+   "Like [[ranks+]] but optimized for summing only the rank at position `n-rank` (defaulting
+    to 0, the first one).
 
-   ;;
+    Commonly used in the context of a [[ptime-engine]] where most of the time we only care about
+    ptime (ie. the first rank).
 
-   ([rank]
+    See [[ranks+]] for rationale.
 
-    (? (partial -ranks+-mono
-                rank)))
+    ```clojure
+    (= [42]
+       (rank+ {::e-flat {::ranks [30]}}
+              12))
+    ```"
+ 
+   ([+rank]
+
+    (rank+ 0
+           +rank))
 
 
-   ([rank ctx]
+   ([n-rank +rank]
+
+    (? (partial rank+
+                n-rank
+                +rank)))
+
+
+   ([n-rank +rank ctx]
 
     (update (ranks ctx)
-            0
+            n-rank
             +
-            rank))))
+            +rank))))
 
 
 
 
 (?
- (defn- -ranks+-poly
+ (defn ranks+
+ 
+   "Returns the ranks of the currently executing flat event summed with the given ones.
 
-   ;;
+    Not providing `ctx` returns a partially applied version.
+ 
+    Some functions such as [[rel-conj]] or [[wq-delay]] take one as argument for scheduling
+    something in the future at the same path that the currently executing flat event. Using [[rank+]]
+    or [[ranks+]] comes in handy.
 
-   ([given-ranks]
+    Its sibling, singular [[rank+]], is optimized for summing only one rank.
+ 
+    ```clojure
+    (= [10 15 3]
+       (ranks+ {::e-flat {::ranks [5 5]}}
+               [5 10 3]))
+ 
+    ```"
+ 
+   ([+ranks]
+    
+    (? (partial ranks+
+                +ranks)))
 
-    (? (partial -ranks+-poly
-                given-ranks)))
 
-
-   ([given-ranks  ctx]
+   ([+ranks ctx]
 
     (rktree/r+ (ranks ctx)
-               given-ranks))))
-
-
-
-
-(defn ranks+
-
-  "Produces a function ctx -> ranks, useful for other `wq-XXX` functions such as [[wq-delay]].
-
-   Fetches the ranks of the current flat event and updates its ptime by adding `ptime+`.
-
-   Throws if `ptime+` < 0, as time travel is forbidden.
-  
-   As an operation, see [[wq-delay]]."
-
-  ([ranks]
-   
-   ((if (vector? ranks)
-      -ranks+-poly
-      -ranks+-mono)
-    ranks))
-
-
-  ([ctx ranks]
-
-   ((ranks+ ranks) ctx)))
+               +ranks))))
 
 
 
@@ -389,15 +408,13 @@
 
   ([ctx]
 
-   (not (empty? (get ctx
-                     ::events))))
+   (some? (::events ctx)))
 
 
   ([ctx ranks]
 
-   (not (empty? (get-in ctx
-                        [::events
-                         ranks])))))
+   (some? (rktree/get (::events ctx)
+                      ranks))))
 
 
 
@@ -422,14 +439,9 @@
 (defn e-assoc
 
   "Schedules an `event`.
+
+   Follows arity convention presented in the namespace description.
   
-   Arities for `e-XXX` functions follow the same convention. Providing both `ranks` and `path` refers explicitely
-   to a prioritized location in the event tree. Without `path`, the path of the currently executing flat event is
-   retrieved (ie. acts with the given `ranks` relative to the current path). Not providing either refers explicitely
-   to the current flat event and its working queue.
-
-   Thus:
-
    | Arity | Means |
    |---|---|
    | 2 | Replaces the current working queue with the given `event`. |
@@ -472,9 +484,9 @@
 
 (defn e-conj
 
-  "Enqueues an `event`.
+  "Enqueues an `event`, creating a queue if there is none.
 
-   Arities follow the same convention as [[e-assoc]].
+   Follows arity convention presented in the namespace description (see also [[e-assoc]]).
 
    It is bad practice to conj something such as an empty queue. It means that \"nothing\" is unnecessarily
    scheduled."
@@ -521,15 +533,24 @@
   
   "Cancels a scheduled event.
 
+   Follows arity convention presented in the namespace description.
+
    | Arity | Means |
    |---|---|
    | 1 | Removes the currently executing flat event. |
-   | 3 | Remove the event located at `ranks` and `path` in the event tree. |"
+   | 2 | In the event tree, removes the event located at `ranks` relative to the current path. |
+   | 3 | In the event tree, remove the event located at `ranks` and `path`. |"
 
   ([ctx]
 
    (dissoc ctx
            ::e-flat))
+
+  ([ctx ranks]
+
+   (e-dissoc ctx
+             ranks
+             (path ctx)))
 
 
   ([ctx ranks path]
@@ -547,6 +568,8 @@
 (defn e-into
 
   "Like [[e-conj]], but for a collection of `events`.
+
+   Follows arity convention presented in the namespace description (see also [[e-assoc]]).
   
    Metadata of the given collection is merged with the already existing queue if there is one.
 
@@ -601,24 +624,18 @@
 
   "Retrieves a scheduled event.
   
+   Follows arity convention presented in the namespace description.
 
    | Arity | Means |
    |---|---|
    | 1 | Returns the current working queue. |
-   | 3 | Returns the event located `path` and prioritized by `ranks` in the event tree. |"
+   | 3 | Returns the event located `path` and prioritized by `ranks` in the event tree. |
+   | 4 | As above, but returns `not-found` is instead of nil when there is no event. |"
 
   ([ctx]
 
    (e-get ctx
           nil))
-
-
-  ([ctx not-found]
-
-   (get-in ctx
-           [::e-flat
-            ::queue]
-           not-found))
 
 
   ([ctx ranks path]
@@ -644,7 +661,7 @@
   "Isolating means that the current working queue or the requested queue in the event tree
    will be nested in an outer queue.
   
-   Arities follow similar convention as [[e-assoc]]."
+   Follows arity convention presented in the namespace description."
 
   ([ctx]
 
@@ -677,7 +694,9 @@
 (defn e-push
 
   "Similar to [[e-into]] but works the other way around. Already scheduled events are added to the given
-   queue `q` and their metadata data is merged."
+   queue `q` and their metadata data is merged.
+
+   Follows arity convention presented in the namespace description."
 
   ([ctx q]
 
@@ -723,12 +742,12 @@
 (defn e-update
 
   "Seldom used by the user, often used by other `e-XXX` functions.
+
+   Follows arity convention presented in the namespace description.
   
    Works like standard `update` but tailored for the current working queue or the event tree.
    
-   Returning nil will remove whatever is at that location.
-  
-   Arities follow similar convention as [[e-assoc]]."
+   Returning nil will dissociate whatever is at that location."
 
   ([ctx f]
 
@@ -765,7 +784,7 @@
  (defn mirror
  
    "Many discrete events and flows are typically interested in two things: the path they work on and the current
-    ptime (ie. the first rank in their ranks, using [[engine-ptime]]).
+    ptime (ie. the first rank in their ranks, using a [[ptime-engine]]).
    
     Turns `f` into a regular event which accepts a `ctx`. Underneath, calls `(f ctx data-at-path current-ptime)`.
     The result is automatically associated in the `ctx` at the same path.
@@ -793,13 +812,19 @@
 
 (defn rel-conj
 
-  ""
+  "Adds `event` in the event tree at the same path as the currently executing flat event, at some future ranks.
+
+   Typically used for scheduling something in the future related to the current flat event.
+  
+   See [[ranks+]] for understaning `ctx->ranks`. If it returns nil, nothing is scheduled."
 
   [ctx ctx->ranks event]
 
-  (e-conj ctx
-          (ctx->ranks ctx)
-          event))
+  (if-some [ranks (ctx->ranks ctx)]
+    (e-conj ctx
+            ranks
+            event)
+    ranks))
 
 
 
@@ -949,8 +974,9 @@
   "Used for building rank-based event engines.
   
    Unless one is building something creative and/or evil, one should feel satisfied with either
-   [[engine]] or [[engine-ptime]]. Someone trully interested will study how [[engine-ptime]] is
-   built before attempting to use this function.
+   [[basic-engine]] or [[ptime-engine]]. Someone trully interested will study how [[ptime-engine]] is
+   built before attempting to use this function for building a specific engine. Will only be useful
+   for modelling a universe where time flows differently (multidimensional? some sort of time travel?)
 
    Returns map containing:
 
@@ -969,7 +995,7 @@
    
    An engine, if it detects that events need to be processed, must call ::period-start. It can then call
    ::run one or several times, and when all needed events are processed defining some period, the engine
-   must call ::period-end. For instance, [[engine-ptime]] considers a single point in time as a period
+   must call ::period-end. For instance, [[ptime-engine]] considers a single point in time as a period
    during which events can be further ranked."
 
   []
@@ -994,11 +1020,11 @@
 
 
 
-(defn engine
+(defn basic-engine
 
-  "Returns a function ctx -> ctx which pops the next ranked events and executes them.
+  "Returns a function `ctx -> ctx` which pops the next ranked events and executes them.
 
-   If the said ctx does not have any event, returns nil."
+   If the said `ctx` does not have any event, returns nil."
 
   []
 
@@ -1016,19 +1042,18 @@
 
 
 
-(defn engine-ptime
-  ;;FLAG
+(defn ptime-engine
 
-  "Like [[engine]], but treats the first rank of events as a ptime (point in time).
+  "Like [[basic-engine]], but treats the first rank of events as a ptime (point in time).
 
-   It is essentially a discrete-event simulation engine but which serves a whole variety of other
+   It is essentially a discrete-event simulation engine but serving a whole variety of other
    purposes as described in the README.
 
    At each run, it executes all events for the next ptime while ensuring that time move forwards.
    An event can schedule other events in the future or, at the earliest, for the same ptime. Throws
    at execution if time misbehaves.
 
-   Current ptime is associated in the context at ::ptime (see also [[ptime]]).
+   Current ptime is associated in the context at `::ptime` (see also [[ptime]]).
    
    `options` is a nilable map containing:
   
@@ -1050,7 +1075,7 @@
 
   ([]
 
-   (engine-ptime nil))
+   (ptime-engine nil))
 
 
   ([options]
@@ -1110,10 +1135,11 @@
 
 (defn historic
 
-  "Given an engine, returns a function ctx -> lazy sequence of each run until all events
+  "Given an engine, returns a function `ctx` -> lazy sequence of each run until all events
    are executed.
   
-   For instance, given an [[engine-ptime]], each element in the sequence will be a ptime."
+   For instance, given a [[ptime-engine]], each element in the sequence will be a view of
+   the `ctx` at a specific ptime."
 
   [engine]
 
@@ -1129,7 +1155,7 @@
  (defn stop
  
    "Removes anything that is currently being executed (if any), all events and all flows,
-    meaning there is left to run."
+    meaning there is nothing left to run."
  
    ([]
 
@@ -1152,9 +1178,6 @@
 ;; Manipulating the working queue, creating events to do so, or quering data about it.
 ;;
 ;;
-;; Arities are redundant but more user-friendly and API-consistent than partial application.
-;; Let us not be too smart by imagining some evil macro.
-;;
 
 
 (?
@@ -1174,7 +1197,7 @@
            event-a
            wq-capture
            event-b
-           (wq-delay (ranks+ 100))
+           (wq-delay (rank+ 100))
            (wq-sreplay pred-repeat
                        1)
            event-c
@@ -1185,19 +1208,14 @@
  
     (queue event-a
            event-b
-           (wq-delay (ranks+ 100))
+           (wq-delay (rank+ 100))
            event-b
            event-c
            event-a
            event-b
-           (wq-delay (ranks+ 100))
+           (wq-delay (rank+ 100))
            event-b
            event-c)
-    ```
-   
-    As an operation (see [[op-applier]]):
-    ```
-    [::wq-capture]
     ```"
    
    ([]
@@ -1235,17 +1253,17 @@
  
     ```clojure
     (queue event-a
-           (wq-delay (ranks+ 500))
+           (wq-delay (rank+ 500))
            event-b)
     ```
-    
-    Particularly useful for modelling activities (sequences of events dispatched in time, using an [[engine-ptime]]).
+
+    Particularly useful for modelling activities (sequences of events dispatched in time, using a [[ptime-engine]]).
     Knowing that several events logically bound together at the same path have to be scheduled at different ptimes, one
     approach would be to schedule all of them in one go, eargerly. However, that could quickly lead to the event tree
-    becoming big in more complex scenarios. More importantly, if an earlier event fails (eg. `event-a`), future one
-    (eg. `event-b`) are already scheduled and will execute.
+    becoming extremely big. More importantly, if an earlier event fails (eg. `event-a`), future ones (eg. `event-b`) are
+    already scheduled and will execute.
  
-    By using this function, both problems are solved. All events are part of the same queue, which makes sense, and
+    By using [[wq-delay]], both problems are solved. All events are part of the same queue, which makes sense, and
     delays reschedule the rest of the queue when needed. An event failing means the queue fails, so the activity stops.
  
     An example of an activity, a customer in a bank, assuming some sort of random delays being provided:
@@ -1258,14 +1276,8 @@
            customer-leaves)
     ``` 
    
-    Unless something more sophisticated is needed, `ctx->ranks` will often be the result of [[ranks+]].
-   
-    As an operation (here, using [[ranks+]])(see [[op-applier]]):
-    ```clojure
-    [::wq-delay [::ranks+ 500]]
-    ```"
- 
-    ;; TODO. Document that returning nil ranks does not do anything.
+    Unless something more sophisticated is needed, `ctx->ranks` will often be the result of [[rank+]] or
+    [[ranks+]]. If `ctx->ranks` returns nil, no delay is incurred."
  
    ([ctx->ranks]
  
@@ -1286,7 +1298,7 @@
 
 (defn wq-dissoc
 
-  ""
+  "Removes the current working queue, stopping effectively its execution."
 
   [ctx]
 
@@ -1302,12 +1314,7 @@
  (defn wq-do!
 
   "Calls `side-effect` with the `ctx` to do some side effect. Ignores the result and simply
-   returns the unmodified `ctx`.
-  
-   As an operation (see [[op-applier]]):
-   ```clojure
-   [::wq-do! [:your-op]]
-   ```"
+   returns the unmodified `ctx`."
 
   ([side-effect]
    
@@ -1326,14 +1333,9 @@
 (?
  (defn wq-exec
  
-   "Executes the given event queue `q` in isolation from the rest of the working queue.
+   "Executes the given event queue `q` in isolation from the rest of the current working queue.
    
-    See also [[e-isolate]].
- 
-    As an operation (see [[op-applier]]):
-    ```clojure
-    [::wq-exec (dsim/queue ...)]
-    ```"
+    See also [[e-isolate]]."
  
    ([q]
 
@@ -1355,7 +1357,7 @@
 
 (defn wq-meta
 
-  "Returns the metadata of the working queue.
+  "Returns the metadata of the current working queue.
   
    See also [[wq-vary-meta]]."
 
@@ -1375,12 +1377,7 @@
     will be repeated. For instance, 2 means 3 occurences: the captured queue is first executed, then repeated
     twice.
    
-    See [[wq-capture]] for an example.
-   
-    As an operation (see [[op-applier]]):
-    ```clojure
-    [::pred-repeat 3]
-    ```"
+    See [[wq-capture]] for an example."
  
    [_ctx n]
  
@@ -1413,12 +1410,8 @@
    "When `pred?` returns true after being called with the current `ctx`, replays the last queue captured by 
     [[wq-capture]].
    
-    When it returns a falsy value, that last captured queue is removed.
-   
-    As an operation (see [[op-applier]]):
-    ```clojure
-    [::wq-replay [:your-pred]]
-    ```"
+    When it returns a falsy value, that last captured queue is removed and the rest of the current working
+    queue is executed."
  
    ([pred?]
 
@@ -1443,13 +1436,7 @@
    "Similar to [[wq-replay]] but `pred` is stateful. It is called with the `ctx` and (initially) the `seed`.
     Returning anything but nil is considered as truthy and is stored as state replacing `seed` in the next call.
  
-    See [[wq-captured]] for an example with [[pred-repeat]].
-   
-    As an operation (see [[op-applier]]):
-    ```clojure
-    [::wq-sreplay [:your-pred]
-                  \"some seed\"]
-    ```"
+    See [[wq-captured]] for an example with [[pred-repeat]]."
  
    ([pred seed]
 
@@ -1486,7 +1473,7 @@
   "Uses Clojure's `vary-meta` on the working queue.
   
    When that queue is copied or moved into the future (eg. by calling [[wq-delay]]), it is a convenient way of storing
-   some state at the level of a queue which can later be retrieved using [[wq-meta]]. When a queue is garbage collected,
+   some state at the level of a queue which can later be retrieved using [[wq-meta]]. When a queue is garbage-collected,
    so is its metadata."
 
   [ctx f & args]
@@ -1508,14 +1495,13 @@
 
 (defn end-flow
 
-  "Is mainly used to end an an infinite flow (see [[infinite]]).
+  "Is mainly used to end an [[infinite]] flow.
 
-   Can also be used inside a finite flow is it needs to end sooner than expected (see [[finite]] and [[sampled-finite]]).
+   Can also be used inside a [[finite]] or [[sampled-finite]] flow is it needs to end sooner than expected.
   
-   Resumes the execution of the rest of the queue when the flow was created.
+   When a flow ends, the rest of the queue that was saved when that flow was created will resume. This behavior
+   makes it extremely easy to chain flows and events, simply add them to the same queue."
   
-   See [[infinite]] for an example."
-
   [ctx]
 
   (let [current-path (path ctx)
@@ -1558,6 +1544,8 @@
 (defn- -sample-walk
 
   ;; Cf. [[sample]]
+  ;;
+  ;; Walks a node in the flow tree and samples every flow.
 
   [ctx ptime path node]
 
@@ -1582,26 +1570,21 @@
 (?
  (defn sample
  
-   "Schedules a sample, now or at the given `ranks`, at the `path` of the current flat event or the given one.
- 
-    The given `path` need not to point to a specific flow, it can point to a subtree which will then be walked to
-    find all flows. This is more efficient than scheduling a sample for all flows individually. For instance, when
-    drawing an animation frame, one can provide an empty path, which is indeed more efficient and easier than
-    scheduling every single element each frame.
+   "When using a [[ptime-engine]], samples the flow associated with the current [[path]].
+
+    Sampling is deduplicated on a per-ptime basis. For a given ptime, it is garanteed a flow will be sampled
+    once and only once.
    
-    The way it works garantees deduplication, meaning that no matter how and how many times a sample is scheduled for
-    a given ptime, it will ultimately happen only once.
- 
-    See also [[infinite]].
- 
-    As an operation (see [[op-applier]]):
-    ```clojure
-    [::sample]
-    ```"
- 
-   ;; TODO. Doc ctx->ranks
-   ;; TODO. Re-introduce rel-conj
- 
+    This is especially important considering that a sample event can be scheduled for anywhere in the flow tree.
+    For instance, when drawing a frame in an animation, it is way simpler to sample everything at once, scheduling
+    a sample event at the root (without any path) rather than scheduling manually every single element that
+    needs to be animated.
+
+    Hence, a flow can be sampled at different rates by different interested parties without worrying about
+    non-idempotency.
+   
+    See [[sampler]]."
+
    ([]
  
     sample)
@@ -1638,7 +1621,8 @@
 
 (defn- -f-assoc
 
-  ;; Associates a new flow and everything it needs for resuming the queue later.
+  ;; Associates a new flow and everything it needs for resuming the queue later,
+  ;; while sampling it for initialization.
 
   [ctx flow]
 
@@ -1662,46 +1646,43 @@
 (?
  (defn infinite 
  
-   "A flow is akin to an event. While events happen at precisely their ranks and have no concept of duration,
-    flows last for an interval of time. They are sampled when needed, decided by the user, by using [[sample]].
+   "When using a [[ptime-engine]], a flow represent some continuous phenomenon, unlike an event which is
+    modelled as being instantaneous and having virtually no duration.
+
+    A flow is sampled, updated could we say, using a [[sample]] event.
  
     An \"infinite\" flow is either endless or ends at a moment that is not known in advance (eg. when the context
-    satifies some condition not knowing when it will occur). It can be ended using `end-flow`.
+    satifies some condition not knowing when it will occur). It can be ended using [[end-flow]].
  
     Here is a simple example of an infinite flow that increments a value and schedules samples itself. In other
     words, that value will be incremented every 500 time units until it is randomly decided to stop. Then, the rest
-    of the queue is resumed (event-a and event-b after a delay of 150 time units).
+    of the queue is resumed (`event-a` and `event-b` after a delay of 150 time units).
  
     ```clojure
     (dsim/queue (infinite (fn flow [ctx]
-                              (let [ctx-2 (update-in ctx
-                                                     (path ctx)
-                                                     inc)]
-                                (if (< (rand)
-                                       0.1)
-                                  (end-flow ctx-2)
-                                  (sample ctx-2
-                                          (wq-ranks+ ctx-2
-                                                     [500]))))))
-                (wq-delay (wq-ranks+ [150]))
+                            (let [ctx-2 (update-in ctx
+                                                   (path ctx)
+                                                   inc)]
+                              (if (< (rand)
+                                     0.1)
+                                (end-flow ctx-2)
+                                (rel-conj ctx-2
+                                          (rank+ 500)
+                                          sample)))))
+                (wq-delay (rank+ 150))
                 event-a
                 event-b)
     ```
     
     Note that when a flow is created, it saves the rest of the working queue and will resume execution when it is done.
     This designs allows for simply building complex sequences of flows and events, including delays if needed (see
-    [[wq-delay]]) and repetitions (see [[capture]]).i
+    [[wq-delay]]) and repetitions (see [[capture]]).
    
-    When created, a flow is automatically sampled at the same ptime for initialization.
+    When created, a flow is sampled right away for initialization. At each sample, a relative ptime is available
+    under `[::e-flat ::ptime]]` (returned by [[ptime]]), starting with 0 at the ptime of creation.
    
     See also [[flow-path]].
-   
-    As an operation:
-    ```clojure
-    [::infinite [:your-flow]]
     ```"
- 
-   ;; TODO. Document relative ptime.
  
    ([flow]
  
@@ -1752,7 +1733,7 @@
                           (after-sample ctx-3
                                         end)
                           ctx-3)))))
-        (rel-conj (ranks+ duration)
+        (rel-conj (rank+ duration)
                   sample))))
 
 
@@ -1765,14 +1746,9 @@
  
     Knowing the `duration` means [[end-flow]] will be called automatically after that interval of time. Also,
     before each sample, the ptime is linearly normalized to a value between 0 and 1 inclusive. In simpler terms,
-    the value at [::e-flat ::ptime] (also returned by [[ptime]]) is the percentage of completion for that flow.
+    the value at `[::e-flat ::ptime]` (also returned by [[ptime]]) is the percentage of completion for that flow.
  
-    Samples are automatically scheduled at creation for initialization and at the end for clean-up.
-   
-    As an operation (see [[op-applier]]):
-    ```clojure
-    [::finite [:your-flow]]
-    ```"
+    Samples are automatically scheduled at creation for initialization and at the end for clean-up."
  
    ([duration flow]
  
@@ -1797,15 +1773,8 @@
    "Just like [[finite]] but eases the process of repeatedly sampling the flow.
    
     After each sample, starting at initialization, schedules another one using `ctx->ranks` (see the commonly
-    used [[ranks+]]), maxing out the ptime at the ptime of completion so that the forseen interval will
-    not be exceeded.
-   
-    As an operation (see [[op-applier]]):
-    ```
-    [::sampled-finite [::ranks+ 500]
-                 4200
-                 [:your-flow]]
-    ```"
+    used [[rank+]] and [[ranks+]]), maxing out the ptime at the ptime of completion so that the forseen interval will
+    not be exceeded."
  
    ([ctx->ranks duration flow]
  
@@ -1833,7 +1802,7 @@
 (? 
  (defn- -sampler
  
-   ""
+   ;; Cf. [[sampler]]
  
    ([ctx->ranks path]
 
@@ -1861,7 +1830,34 @@
 (?
  (defn sampler
  
-   ""
+   "A [[sampler]] event schedules a [[sample]] at future ranks computed by 'ctx->ranks'. It will
+    continue to do so until there is nothing flowing anymore for that [[path]] or 'ctx->ranks' returns nil.
+
+    It is commonly used for sampling repeatedly a subtree of flows rather than a specific flow. For
+    instance, one could use a sampler for drawing every frame of an animation. Supposing a single ptime
+    represents one millisecond and we draw at 60 frames per second:
+
+    ```clojure
+    (e-conj ctx
+            [0 1000000]
+            nil
+            (sampler (rank+ (/ 1000
+                               60))))
+    ```
+
+    Two things are interesting. First, besides scheduling for ptime 0, the sampler is scheduled for a
+    secondary rank of 1000000, meaning all futures samples it performs, being rescheduled with that
+    same secondary rank, will have a very low priority. Second, we did not provide a path, meaning we want
+    sampling to occur for the whole flow tree (ie. all existing flows).
+
+    Sometimes, specific flow samples are ordered using further ranks beyond the ptime. Had we scheduled that
+    sampler without that secondary rank, all future samples would run with the highest priority within ptimes,
+    sampling the whole tree at once, thus disrupting samples that were already ordered for those ptimes in
+    a more specific order.
+   
+    Ensuring that this sampler executes last garantees ordering of all sample events. Remember that
+    samples are deduplicated, meaning that when a sample ordered by the sampler executes, it will execute
+    only flows that have not been sampled yet."
  
    ([ctx->ranks]
  
@@ -1888,15 +1884,38 @@
 
 (def serializable
 
-  ""
+  "It can be particularly useful being able to serialize a `ctx` in order to save if to a file or sending
+   it over the wire (saving the whole state of a game, saving long running simulations, sharing them, etc).
+  
+   However, how could one serialize all those event functions? The answer to that problem is an external library
+   called `dvlopt/fdat`. The following functions of this API are indeed serializable using `dvlopt/fdat`:
 
-  [-ranks+-mono
-   -ranks+-poly
-   -sampler
+   - finite
+   - infinite
+   - mirror
+   - pred-repeat
+   - rank+
+   - ranks+
+   - sample
+   - sampled-finite
+   - sampler
+   - stop
+   - wq-capture
+   - wq-delay
+   - wq-do!
+   - wq-exec
+   - wq-replay
+   - wq-sreplay
+  
+   [https://github.com/dvlopt/fdat.cljc](https://github.com/dvlopt/fdat.cljc)"
+
+  [-sampler
    finite
    infinite
    mirror
    pred-repeat
+   rank+
+   ranks+
    sample
    sampled-finite
    sampler

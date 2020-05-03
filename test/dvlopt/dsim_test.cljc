@@ -47,7 +47,7 @@
   (transit/read
     (transit/reader #?(:clj (ByteArrayInputStream. (.toByteArray x)))
                     :json
-                    {:handlers (dsim.transit/read-handlers)})
+                    {:handlers (dsim.transit/reader-handlers)})
     #?(:cljs x)))
 
 

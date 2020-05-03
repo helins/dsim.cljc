@@ -20,7 +20,7 @@
 ;;;;;;;;;;
 
 
-(defn read-handlers
+(defn reader-handlers
 
   "Map of handlers for readers."
 

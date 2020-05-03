@@ -42,7 +42,8 @@ Bach](https://www.youtube.com/watch?v=Y9OUfBDIGhw&t=3212s))
 	- [Glide through time with finite and infinite flows](#flows)
 	- [Samplers and flow deduplication](#flows)
 	- [Offline and online animations](#animation)
-- [Serialization using `dvlopt/fdat`](#serialization)
+- [Serialization](#serialization)
+	- [Leveraging the `dvlopt/fdat` library](#fdat)
 - [Async, parallelization, and optimizations problems](#parallel)
 - [Writing your own specific engine](#writing-engine)
 - [Last few words](#last-words)
@@ -78,7 +79,7 @@ $ clj -A:dev:test
 # and your favorite REPL
 ```
 
-### Knowing our priorities <a name"knowing-our-priorities">
+### Knowing our priorities <a name="knowing-our-priorities">
 
 In one way or another, what is time but an information about ordering? In its
 simplest definition, time unravels as a sequence of events. A simple way to
@@ -120,7 +121,7 @@ core of DSim engines but are also available as an external library:
 
 [dvlopt/rktree](https://github.com/dvlopt/rktree.cljc)
 
-### At the same time, but not exactly <a name"same-time">
+### At the same time, but not exactly <a name="same-time">
 
 Following the previous excerpt, we know that `:little-prince` first watches the
 sunset and then feels happy. What really matters is that relative order.
@@ -885,13 +886,15 @@ flows (anything that moves on screen):
 
 ## Serialization using `dvlopt/fdat` <a name="serialization">
 
+### Leveraging the `dvlopt/fdat` library <a name="fdat">
+
 There are many uses cases for which we would like to be able to serialize a
-`ctx`.  Saving the whole state of a game to a file, sharing a simulation with a
+`ctx`. Saving the whole state of a game to a file, sharing a simulation with a
 colleague, saving a long running simulation once in a while, distributed
 computing, etc.
 
 However, how could one serialize such a `ctx`? It contains a whole lot of
-events, or flows, which are all functions.
+events, or flows, a whole lotta opaque functions.
 
 The [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) library orginates from
 the DSim project. It proposes a somewhat novel solution for serializing
@@ -900,6 +903,32 @@ functions and other impossible things such as infinite sequences.
 `dvlopt.dsim/serializable` provides functions that need to be registered if
 serialization is needed. Naturally, it is assumed the user is familiar with
 [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) in the first place.
+
+### When using Transit <a name="using-transit">
+
+The [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) library currently
+supports [Nippy](https://github.com/ptaoussanis/nippy) as well as Transit. However, Transit does not directly supports queues and does not distinguish between sorted maps and unsorted ones.
+
+Transit remains pretty much the only available option when exchanging such data
+between Clojure and Clojurescript. The following package provides what is needed
+for using it with DSim. [Transit-clj](https://github.com/cognitect/transit-clj)
+or [Transit-cljs](https://github.com/cognitect/transit-cljs) must be added to dependencies.
+
+[![Clojars
+Project](https://img.shields.io/clojars/v/dvlopt/dsim.transit.svg)](https://clojars.org/dvlopt/dsim.transit)
+
+```clojure
+(require '[dvlopt.dsim.transit :as dsim.transit])
+
+
+(doc dsim.transit/reader-handlers)
+
+(doc dsim.transit/writer-options)
+```
+
+Writer options provide `:handlers` for writer as well as the `:transform`
+function. `Attention`, when using Clojurescript, you must also explicitly add the latest version of [Transit-js](https://github.com/cognitect/transit-js) to dependencies. This is due to a current bug in the dependency pulling of Transit-cljs which import an earlier version which does not support `:transform`.
+
 
 ## Async, parallelization, and optimization problems <a name="parallel">
 

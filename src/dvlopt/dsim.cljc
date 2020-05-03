@@ -634,8 +634,9 @@
 
   ([ctx]
 
-   (e-get ctx
-          nil))
+   (get-in ctx
+		   [::e-flat
+			::queue]))
 
 
   ([ctx ranks path]

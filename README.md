@@ -19,7 +19,36 @@ any state needs to evolve methodically over time, over some order.
 (inspired by [the contrapuntal works of J.S.
 Bach](https://www.youtube.com/watch?v=Y9OUfBDIGhw&t=3212s))
 
-# Socratic rationale
+
+- [Socratic rationale](#socratic-rationale)
+	- [Knowing our priorities](#knowing-our-priorities)
+	- [Mixing time and space](#mixing-time-and-space)
+	- [At the same time, but not exactly](#same-time)
+	- [Creating time in our universe](#creating-time)
+	- [Events scheduling events](#events-scheduling-events)
+	- [Setting the universe into motion](#setting-into-motion)
+	- [A brief history of the universe](#history-of-universe)
+- [Discrete-event simulation](#discrete-event-simulation)
+	- [Programmatic time](#programmatic-time)
+	- [Activities](#activities)
+	- [Working queues and flat events](#working-queues-flat-events)
+	- [Knowing when to stop](#stopping)
+	- [Nesting queues for safety and timing](#nested-queues)
+	- [Being meta about managing event state across time](#queue-state)
+	- [Periodicity and repetition](#replaying)
+	- [Error handling](#error-handling)
+	- [Determined to be stochastic](#random)
+- [Continuous and hybrid simulation](#continuous-hybrid)
+	- [Glide through time with finite and infinite flows](#flows)
+	- [Samplers and flow deduplication](#flows)
+	- [Offline and online animations](#animation)
+- [Serialization using `dvlopt/fdat`](#serialization)
+- [Async, parallelization, and optimizations problems](#parallel)
+- [Writing your own specific engine](#writing-engine)
+- [Last few words](#last-words)
+- [Run tests](#run-tests)
+
+## Socratic rationale <a name="socratic-rationale">
 
 Framing most of our programs as simulations opens up a new perspective that many
 software developers do not consider. However, Clojure already holds a special
@@ -49,7 +78,7 @@ $ clj -A:dev:test
 # and your favorite REPL
 ```
 
-## Knowing our priorities
+### Knowing our priorities <a name"knowing-our-priorities">
 
 In one way or another, what is time but an information about ordering? In its
 simplest definition, time unravels as a sequence of events. A simple way to
@@ -67,7 +96,7 @@ to have higher-order prioritization. We can say that each event has `ranks`, a
 lower rank meaning a higher priority. For instance, `event-3` is ranked at `[42
 2]`.
 
-## Mixing time and space
+### Mixing time and space <a name="mixing-time-and-space">
 
 For given ranks, more than one event might occur. We need to differentiate
 them.
@@ -91,7 +120,7 @@ core of DSim engines but are also available as an external library:
 
 [dvlopt/rktree](https://github.com/dvlopt/rktree.cljc)
 
-## At the same time, but not exactly
+### At the same time, but not exactly <a name"same-time">
 
 Following the previous excerpt, we know that `:little-prince` first watches the
 sunset and then feels happy. What really matters is that relative order.
@@ -129,7 +158,7 @@ Modelling dependencies using further ranking, as in our previous version, is
 like saying: "Event B happens no matter what, but if Event A happens, it must
 execute before Event B".
 
-## Creating time in our universe
+### Creating time in our universe <a name="creating-time">
 
 We have not discussed what those events actually do. What does it mean to feel
 happy? How does it impact the world, anything?
@@ -162,7 +191,7 @@ it knows where it happens, what for. Feeling happy is not specific to the
 `:little-prince`, we can easily reuse it for anyone else as evidenced by the
 implementation.
 
-## Events scheduling events
+### Events scheduling events <a name="events-scheduling-events">
 
 Because an `event` modifies a `ctx` and a `ctx` contains all scheduled events,
 it stands to reason an `event` can schedule other events.
@@ -189,7 +218,7 @@ rescheduled in the future, at the same path. An event can easily retrieve its
 ranks (calling `dvlopt.dsim/ranks`) and update them, just as happiness is here
 rescheduled for 100 time units later.
 
-## Setting the universe into motion
+### Setting the universe into motion <a name="setting-into-motion">
 
 Like Isaac Newton's god, after designing our universe, scheduling first events,
 we need to set it into motion. We shall use the "ptime engine". It considers
@@ -220,7 +249,7 @@ After our first run happening at point in time 42 (as indicated by the `::dsim/p
 key in the `ctx`), I now feel happy for the first time. We can see that it is already
 rescheduled for 100 time units later as expected.
 
-## A history of the universe
+### A history of the universe <a name="history-of-universe">
 
 Instead of calling our engine repeatedly, we can modify it and pump it up.
 
@@ -252,7 +281,7 @@ question. Let us add an unpredictable event which could disrupt that.
         (assoc :pandemic?
                true)
         (assoc-in [:me :mood]
-				  :still-happy-nonetheless))
+                  :still-happy-nonetheless))
     (dsim/e-conj ctx
                  (update (dsim/ranks ctx)
                          0
@@ -310,7 +339,7 @@ what is given.
 Those `ctx -> ranks` functions are used in a few places in the API. They provide great flexibility.
 
 
-# Discrete event simulation
+## Discrete-event simulation <a name="discrete-event-simulation">
 
 Congratulations, we have reinvented [discrete-event
 simulation (DES)](https://en.wikipedia.org/wiki/Discrete-event_simulation).
@@ -334,7 +363,7 @@ In addition:
     Grinders](https://www.reddit.com/r/Clojure/comments/fr3jxd/coffee_grinders_part_2/),
     ...)
 
-## Programmatic time
+### Programmatic time <a name="programmatic-time">
 
 Time in our programs can be of any unit. In a game, it would probably be actual
 milliseconds. In an animation, probably frames to draw. In a simulation, maybe
@@ -347,7 +376,7 @@ but that point in time can be any future number, whole or real. For instance, in
 an animation, it is perfectly normal to schedule something for a fractional
 frame (eg. frame 42.404).
 
-## Activities
+### Activities <a name="activities">
 
 In DES terminology, an activity is a sequence of events typically dispatched in
 time. Assuming a world where 1 time unit represents 1 hour:
@@ -368,7 +397,7 @@ here in hours) by adding 24 (hours).
 It is best to use a queue here. We know that `sunset` happens after `sunrise`,
 but without a `sunrise` there should be no `sunset`.
 
-## Working queues and flat events
+### Working queues and flat events <a name="working-queues-flat-events">
 
 Queues can be nested. In more complex scenarios, it can be useful having queues
 of queues of event functions. No matter how nested or not, the engine momentarily
@@ -433,7 +462,7 @@ or used as events in order to manipulate that working queue. When discussing
 activities, we have already discovered how to create delays via
 `dvlopt.dsim/wq-delay`.
 
-## Knowing when to stop
+### Knowing when to stop <a name="stopping">
 
 We have already seen `dvlopt.dsim/stop` which removes all events and anything
 currently executing (if any), meaning the engine has nothing left to run.
@@ -442,7 +471,7 @@ In order to stop the currently executing flat event only, one can call
 `dvlopt.dsim/e-dissoc`. Further, in order to stop the current working queue
 only, one can call `dvlopt.dsim/wq-dissoc`.
 
-## Nesting queues for safety and timing
+### Nesting queues for safety and timing <a name="nested-queues">
 
 Inner queues working in complete isolation from outer ones, besides safety,
 provide a useful property when it comes to timing. Let us consider:
@@ -481,7 +510,7 @@ Such properties emerge from the simple fact that we treat queues as strict FIFO
 only pop the first element at the beginning. In other words, we cannot modify
 any element without rebuilding a whole new queue, which we do not in DSim.
 
-## Being meta about managing event state across time
+### Being meta about managing event state across time <a name="queue-state">
 
 Suppose an activity such as:
 
@@ -520,7 +549,7 @@ provided to work directly on the current working queue:
    (dsim/wq-meta ctx-2))
 ```
 
-## Periodicity and repetition
+### Periodicity and repetition <a name="replaying">
 
 Often, events, activities or part of them, repeat in time. We can use the
 convenient `dvlopt.dsim/wq-capture` function which saves in the metadata of the
@@ -593,7 +622,7 @@ its own metadata.
 Generally speaking, this is a practical example of why it can be useful to store
 information in the metadatas of queues.
 
-## Error handling
+### Error handling <a name="error-handling">
 
 Error handlers are located at the level of queues. When an event function throws
 an exception, the engine looks for an error handling function located at
@@ -615,7 +644,7 @@ If an error handler returns nil instead of a `ctx`, then the engine keeps
 looking for another handler in outer queues. If none is found, it ultimately
 rethrows the exception.
 
-## Determined to be stochastic
+### Determined to be stochastic <a name="random">
 
 Some simulation are purely deterministic, meaning that given the same initial
 parameters, they will always produce the same results. Others are stochastic,
@@ -638,7 +667,7 @@ which provides ways for randomly sampling common statistical distributions.
 If you do not know what this is all about, you probably do not need it at the
 moment. Which does not mean you should not be curious and research the topic.
 
-# Continuous and hybrid simulations
+## Continuous and hybrid simulation <a name="continuous-hybrid">
 
 In a continuous simulation, time does not jumps. It gradually and constantly
 flows, much like in our universe. Remember that in discrete-event simulation,
@@ -670,7 +699,7 @@ moment. Yes, modelled as a discrete event. That ball, having two continuous
 hybrid. Because we start from the idea that everything is an event, we are
 already good to go.
 
-## Glide through time with finite and infinite flows
+### Glide through time with finite and infinite flows <a name="flows">
 
 "Flow" is the shorter name we give to a continuous phenomenon. It is created
 using an event, sampled using events, but lives outside the event tree for the
@@ -758,7 +787,7 @@ scale any percent value:
                          800)))
 ```
 
-## Samplers and flow deduplication
+### Samplers and flow deduplication <a name="samplers">
 
 Damn, we did create our moving object but we forgot to sample it. As such, it
 will only be sampled (executed) at creation and at completion.
@@ -823,7 +852,7 @@ do not disturb other samplers, or samplings of specific flows, that might need
 to happen in a particular order, but we ensure that everything is sampled at
 the end of each point in time we need to draw a frame for.
 
-# Offline and online animations
+### Offline and online animations <a name="animation">
 
 Those are not the exact terms employed in the litterature, but they are
 meaningful to the programmer.
@@ -848,10 +877,16 @@ provides the "view" and the "view" only. Using DSim, we have a concrete
 framework for the "model" and how state evolves over time, taking care of what
 it is that we need to "view".
 
-# Serialization using `dvlopt/fdat`
+For instance, here is an example of a automated piano visualizer drawn with
+Quil and modelled using DSim where played notes are discrete events creating
+flows (anything that moves on screen):
 
-There are many cases for which we would like to be able to serialize a `ctx`.
-Saving the whole state of a game to a file, sharing a simulation with a
+[Shostakovich - E-Minor Prelude](https://youtu.be/XlEnrs0MDes)
+
+## Serialization using `dvlopt/fdat` <a name="serialization">
+
+There are many uses cases for which we would like to be able to serialize a
+`ctx`.  Saving the whole state of a game to a file, sharing a simulation with a
 colleague, saving a long running simulation once in a while, distributed
 computing, etc.
 
@@ -866,7 +901,7 @@ functions and other impossible things such as infinite sequences.
 serialization is needed. Naturally, it is assumed the user is familiar with
 [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) in the first place.
 
-# Async events, parallelization, and optimization problems
+## Async, parallelization, and optimization problems <a name="parallel">
 
 Enforcing such strong and concrete notions about time presents us with a
 blessing seldom received. Following everything we have discussed, by definition,
@@ -895,7 +930,7 @@ environment tends to be extremely time consuming. That is why we took great
 care into ensuring that a `ctx` is serializable at any moment (given you
 leverage the [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) library) and thus, easily shared between machines.
 
-# Writing your own engine
+## Writing your own specific engine <a name="writing-engine">
 
 The `ptime-engine` is probably what you want and what we have discussed. A `basic-engine` also exists which has no concept of "point in times" nor flows, only events at ranks providing ordering.
 
@@ -906,7 +941,7 @@ Unless you are a mad scientist or maybe some crazy physicist modelling universes
 where time is multi-dimensional, you probably do not need to build your own
 thing.
 
-# Last few words
+## Last few words <a name="last-words">
 
 If you read the whole thing, these one thousand lines of README, sincere
 congratulations.

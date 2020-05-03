@@ -3,8 +3,8 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>dvlopt</groupId>
   <artifactId>dsim.transit</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
-  <name>dsim</name>
+  <version>1.0.0-beta0</version>
+  <name>DSim.transit</name>
   <description>Handlers for serialization of DSim contexts via Transit</description>
   <url>https://github.com/dvlopt/dsim.cljc</url>
   <licenses>
@@ -15,7 +15,7 @@
   </licenses>
   <developers>
     <developer>
-      <name>Adam</name>
+      <name>Adam Helinski</name>
     </developer>
   </developers>
   <scm>
@@ -38,7 +38,7 @@
     <dependency>
       <groupId>dvlopt</groupId>
       <artifactId>fdat.plugins.transit</artifactId>
-      <version>0.0.0-beta2</version>
+      <version>0.0.0-beta3</version>
     </dependency>
     <dependency>
       <groupId>dvlopt</groupId>

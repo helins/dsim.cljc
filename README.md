@@ -44,6 +44,7 @@ Bach](https://www.youtube.com/watch?v=Y9OUfBDIGhw&t=3212s))
 	- [Offline and online animations](#animation)
 - [Serialization](#serialization)
 	- [Leveraging the `dvlopt/fdat` library](#fdat)
+	- [When using Transit](#transit)
 - [Async, parallelization, and optimizations problems](#parallel)
 - [Writing your own specific engine](#writing-engine)
 - [Last few words](#last-words)
@@ -904,7 +905,7 @@ functions and other impossible things such as infinite sequences.
 serialization is needed. Naturally, it is assumed the user is familiar with
 [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) in the first place.
 
-### When using Transit <a name="using-transit">
+### When using Transit <a name="transit">
 
 The [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) library currently
 supports [Nippy](https://github.com/ptaoussanis/nippy) as well as Transit. However, Transit does not directly supports queues and does not distinguish between sorted maps and unsorted ones.

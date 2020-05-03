@@ -1,0 +1,18 @@
+{:deps
+ {org.clojure/clojure {:mvn/version "1.10.1"}}
+
+ :paths
+ ["src"]
+
+ :aliases
+ {:deploy
+  {:extra-deps {deps-deploy {:mvn/version "0.0.9"}}
+   :main-opts  ["-m" "deps-deploy.deps-deploy" "deploy" "dsim_transit.jar"]}
+
+  :jar
+  {:extra-deps {seancorfield/depstar {:mvn/version "0.5.2"}}
+   :main-opts  ["-m" "hf.depstar.jar" "dsim_transit.jar"]}
+
+  :install
+  {:extra-deps {deps-deploy {:mvn/version "0.0.9"}}
+   :main-opts  ["-m" "deps-deploy.deps-deploy" "install" "dsim_transit.jar"]}}}

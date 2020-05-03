@@ -229,7 +229,7 @@
 
 (def ptime+1
 
-  (dsim/wq-ptime+ 1))
+  (dsim/ranks+ 1))
 
 
 
@@ -241,10 +241,10 @@
  
    [catched]
    
-   (dsim/e-stop (assoc (or (::dsim/ctx-inner catched)
-                           (::dsim/ctx catched))
-                       :handled?
-                       true))))
+   (dsim/e-dissoc (assoc (or (::dsim/ctx-inner catched)
+                             (::dsim/ctx catched))
+                         :handled?
+                         true))))
 
 
 (?
@@ -330,10 +330,10 @@
                      path)
              n)
         (-> ctx-2
-            (dsim/f-sample ptime+1)
-            (dsim/f-sample ptime+1)
-            (dsim/f-sample ptime+1))
-        (dsim/f-end ctx-2))))))
+            (dsim/sample ptime+1)
+            (dsim/sample ptime+1)
+            (dsim/sample ptime+1))
+        (dsim/end-flow ctx-2))))))
 
 
 (?
@@ -341,7 +341,7 @@
  
    [ctx]
  
-   (dsim/f-end ((event-writer :b) ctx))))
+   (dsim/end-flow ((event-writer :b) ctx))))
 
 
 (?
@@ -851,7 +851,7 @@
 
 (t/deftest wq-delay
 
-  ;; Tests `wq-ptime+` as well.
+  ;; Tests `ranks+` as well.
 
   (let [delay-1u (dsim/wq-delay ptime+1)
         h        (history-DE (dsim/e-assoc (ctx-init 0)
@@ -920,7 +920,7 @@
                                      [:n]
                                      (dsim/queue dsim/wq-capture
                                                  event-inc
-                                                 (dsim/wq-delay (dsim/wq-ptime+ 1))
+                                                 (dsim/wq-delay (dsim/ranks+ 1))
                                                  (dsim/wq-replay pred?))))]
       (t/is (= 11
                (count h))
@@ -943,10 +943,10 @@
                                                                (event-writer :out)
                                                                dsim/wq-capture
                                                                (event-writer :in)
-                                                               (dsim/wq-sreplay dsim/wq-pred-repeat
+                                                               (dsim/wq-sreplay dsim/pred-repeat
                                                                                 1)
                                                                (event-writer :out)
-                                                               (dsim/wq-sreplay dsim/wq-pred-repeat
+                                                               (dsim/wq-sreplay dsim/pred-repeat
                                                                                 1)))))))
         "An inner loop within an outer one"))
 
@@ -967,13 +967,13 @@
 
 
 
-(t/deftest f-infinite
+(t/deftest infinite
 
   (let [n   100
         h   (history-DE (dsim/e-conj (ctx-init 0)
                                      [1]
                                      [:n]
-                                     (dsim/f-infinite (flow-infinite n))))
+                                     (dsim/infinite (flow-infinite n))))
         end (last h)]
 
     (t/is (= n
@@ -989,18 +989,18 @@
 
 
 
-(t/deftest f-sampled
+(t/deftest sampled-finite
 
-  ;; Tests `f-finite` as well.
+  ;; Tests `finite` as well.
 
 
   (let [n   100
         h   (history-DE (dsim/e-conj (ctx-init 0)
                                      [0]
                                      [:n]
-                                     (dsim/f-sampled ptime+1
-                                                     (dec n)
-                                                     event-inc)))
+                                     (dsim/sampled-finite ptime+1
+                                                          (dec n)
+                                                          event-inc)))
         end (last h)]
 
     (t/is (= n
@@ -1018,15 +1018,15 @@
                                    [0]
                                    [:writer]
                                    (dsim/queue dsim/wq-capture
-                                               (dsim/f-sampled ptime+1
-                                                               2
-                                                               (event-writer :a))
-                                               (dsim/f-infinite flow-writer)
+                                               (dsim/sampled-finite ptime+1
+                                                                    2
+                                                                    (event-writer :a))
+                                               (dsim/infinite flow-writer)
                                                (dsim/wq-delay ptime+1)
-                                               (dsim/f-sampled ptime+1
-                                                               1
-                                                               (event-writer :c))
-                                               (dsim/wq-sreplay dsim/wq-pred-repeat
+                                               (dsim/sampled-finite ptime+1
+                                                                    1
+                                                                    (event-writer :c))
+                                               (dsim/wq-sreplay dsim/pred-repeat
                                                                 2))))]
     (t/is (= [[:a]
               [:a :a]
@@ -1050,12 +1050,14 @@
 
 (t/deftest sampler
 
+  ;; Tests `finite` as well.
+
   (t/is (= (ctx-jump 11)
            (last (history-DE
                    (dsim/e-conj (ctx-init 0)
                                 [1]
                                 [:n]
                                 (dsim/queue (dsim/sampler ptime+1)
-                                            (dsim/f-finite 10
-                                                           event-inc))))))
+                                            (dsim/finite 10
+                                                         event-inc))))))
         "Sampler sample when expected"))

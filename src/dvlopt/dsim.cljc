@@ -40,13 +40,16 @@
 ;; The front is implemented as a seq, so prepending is efficient, but the seq is
 ;; package private. Relying on non-public features is not recommended. On the other
 ;; hand, it is fairly certain the implementation will stay like this.
+;;
+;; In CLJS, turns out the seq is readily accessible as nothing is really private.
 
 
 ;; Parallelize by ranks?
 ;;
 ;; By definition, all events with the same ranking  are independent, meaning that they
-;; can be parallelized without a doubt if needed. But due to the non-blocking nature
-;; JS, it is hard to find a portable solution without buying completely into core.async.
+;; can be parallelized without a doubt if needed. But due to the non-blocking nature of
+;; JS, it is hard to find a portable solution without buying completely into core.async,
+;; meaning going async all the way...
 
 
 
@@ -55,8 +58,8 @@
 
 
 (declare e-update
-         f-sample
          path
+         wq-dissoc
          wq-vary-meta)
 
 
@@ -214,7 +217,7 @@
 ;;;;;;;;; @[ctx]  Generalities about contextes
 
 
-(defn f-path
+(defn flow-path
 
   "All flows are kept as a tree in the context. It is useful to be able to locate them
    when some state specific to a flow need to be maintained. Indeed, each flow is kept in a
@@ -227,17 +230,12 @@
    | 0 | Returns path to the root of the flow tree (ie. all flows) |
    | 1 | Locates `path` in the flow tree |
   
-   See also [[f-infinite]]."
+   See also [[infinite]]."
 
-  ([]
+  ([ctx]
 
-   [::flows])
-
-
-  ([path]
-
-   (into (f-path)
-         path)))
+   (into [::flows]
+         (path ctx))))
 
 
 
@@ -262,7 +260,9 @@
 
 (defn next-ptime
 
-  "On what ptime is scheduled the next event, if there is one?"
+  "On what ptime is scheduled the next event?
+  
+   Returns nil if there is none."
 
   [ctx]
 
@@ -284,13 +284,89 @@
 
 (defn ptime
 
-  "Returns either the ptime at [::e-flat ::ptime] (notably useful for [[f-finite]] or [[f-sampled]]
+  "Returns either the ptime at [::e-flat ::ptime] (notably useful for [[finite]] or [[sampled-finite]]
    or, if there is none, at [::ptime]."
 
   [ctx]
 
   (or (::ptime (::e-flat ctx))
       (::ptime ctx)))
+
+
+
+
+(defn ranks
+
+  "Returns the ranks at [::e-flat ::ranks]."
+
+  [ctx]
+
+  (::ranks (::e-flat ctx)))
+
+
+
+
+(?
+ (defn- -ranks+-mono
+
+   ;;
+
+   ([rank]
+
+    (? (partial -ranks+-mono
+                rank)))
+
+
+   ([rank ctx]
+
+    (update (ranks ctx)
+            0
+            +
+            rank))))
+
+
+
+
+(?
+ (defn- -ranks+-poly
+
+   ;;
+
+   ([given-ranks]
+
+    (? (partial -ranks+-poly
+                given-ranks)))
+
+
+   ([given-ranks  ctx]
+
+    (rktree/r+ (ranks ctx)
+               given-ranks))))
+
+
+
+
+(defn ranks+
+
+  "Produces a function ctx -> ranks, useful for other `wq-XXX` functions such as [[wq-delay]].
+
+   Fetches the ranks of the current flat event and updates its ptime by adding `ptime+`.
+
+   Throws if `ptime+` < 0, as time travel is forbidden.
+  
+   As an operation, see [[wq-delay]]."
+
+  ([ranks]
+   
+   ((if (vector? ranks)
+      -ranks+-poly
+      -ranks+-mono)
+    ranks))
+
+
+  ([ctx ranks]
+
+   ((ranks+ ranks) ctx)))
 
 
 
@@ -322,17 +398,6 @@
    (not (empty? (get-in ctx
                         [::events
                          ranks])))))
-
-
-
-
-(defn ranks
-
-  "Returns the ranks at [::e-flat ::ranks]."
-
-  [ctx]
-
-  (::ranks (::e-flat ctx)))
 
 
 
@@ -458,15 +523,13 @@
 
    | Arity | Means |
    |---|---|
-   | 1 | Removes the current working queue. |
+   | 1 | Removes the currently executing flat event. |
    | 3 | Remove the event located at `ranks` and `path` in the event tree. |"
 
   ([ctx]
 
-   (update ctx
-           ::e-flat
-           dissoc
-           ::queue))
+   (dissoc ctx
+           ::e-flat))
 
 
   ([ctx ranks path]
@@ -657,24 +720,6 @@
 
 
 
-(?
- (defn e-stop
- 
-   "Removes the current flat event, thus stopping its execution."
- 
-   ([]
-
-    e-stop)
-
-
-   ([ctx]
- 
-    (dissoc ctx
-            ::e-flat))))
-
-
-
-
 (defn e-update
 
   "Seldom used by the user, often used by other `e-XXX` functions.
@@ -725,7 +770,7 @@
     Turns `f` into a regular event which accepts a `ctx`. Underneath, calls `(f ctx data-at-path current-ptime)`.
     The result is automatically associated in the `ctx` at the same path.
    
-    Notably useful for [[f-finite]] and [[f-sampled]], and many regulard events for that matter."
+    Notably useful for [[finite]] and [[sampled-finite]], and many regular events for that matter."
  
    ([f]
  
@@ -746,6 +791,19 @@
 
 
 
+(defn rel-conj
+
+  ""
+
+  [ctx ctx->ranks event]
+
+  (e-conj ctx
+          (ctx->ranks ctx)
+          event))
+
+
+
+
 ;;;;;;;;;; @[ngin]  Building time-based event engines
 
 
@@ -755,7 +813,7 @@
 
   [ctx q err]
 
-  (let [ctx-2 (e-dissoc ctx)]
+  (let [ctx-2 (wq-dissoc ctx)]
     (or (void/call (::on-error (meta q))
                    {::ctx   ctx-2
                     ::queue q})
@@ -777,11 +835,11 @@
 
 (defn- -exec-ef
 
-  ;; Executes a single event unit.
+  ;; Executes a single event function .
   ;;
   ;; If it throws, it tries to find an error handler from the present queue or outers one
   ;; in the stack. If an error handler returns nil, meaning it does not know what to do,
-  ;; the pursuit continues.
+  ;; the pursuit continues (cf. [[-catched]]).
 
   [ctx q eu]
 
@@ -808,23 +866,23 @@
 
   [ctx q]
 
-  (let [event (peek q)
-        q-2   (pop q)]
+  (let [event    (peek q)
+        q-popped (pop q)]
     (if (queue? event)
       (recur (update-in ctx
                         [::e-flat
                          ::stack]
                         (fnil conj
                               (list))
-                        [(e-dissoc ctx)
-                         q-2])
+                        [(wq-dissoc ctx)
+                         q-popped])
              event)
       (let [ctx-2 (-exec-ef (e-assoc ctx
-                                     q-2)
-                            q-2
+                                     q-popped)
+                            q-popped
                             event)
-            q-3   (e-get ctx-2)]
-        (if (empty? q-3)
+            q-2   (e-get ctx-2)]
+        (if (empty? q-2)
           (if-some [[stack-2
                      q-outer] (loop [stack (::stack (::e-flat ctx-2))]
                                 (when-some [[_ctx-outer
@@ -842,7 +900,7 @@
                    q-outer)
             ctx-2)
           (recur ctx-2
-                 q-3))))))
+                 q-2))))))
 
 
 
@@ -959,8 +1017,12 @@
 
 
 (defn engine-ptime
+  ;;FLAG
 
-  "Like [[engine]], but treats the first rank of event as a ptime (point in time).
+  "Like [[engine]], but treats the first rank of events as a ptime (point in time).
+
+   It is essentially a discrete-event simulation engine but which serves a whole variety of other
+   purposes as described in the README.
 
    At each run, it executes all events for the next ptime while ensuring that time move forwards.
    An event can schedule other events in the future or, at the earliest, for the same ptime. Throws
@@ -977,13 +1039,14 @@
 
    If a ctx does not have any event, a run returns nil."
 
-   
-  ;; MAYBEDO. ::after
-  ;;          Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
-  ;;          Would it be really useful to share some state between all events on a per ptime basis?
-  ;;          Or per ranks?
-  ;;          Probably not...
-
+  ;; MAYBEDO
+  ;;
+  ;; ::after
+  ;;
+  ;; Cleaning up some state for a ptime just as ::e-flat is cleaned up after execution?
+  ;; Would it be really useful to share some state between all events on a per ptime basis?
+  ;; Or per ranks?
+  ;; Probably not...
 
   ([]
 
@@ -1076,7 +1139,7 @@
    ([ctx]
  
     (-> ctx
-        e-stop
+        e-dissoc
         (dissoc ::events)
         (dissoc ::flows)))))
 
@@ -1111,23 +1174,23 @@
            event-a
            wq-capture
            event-b
-           (wq-delay (wq-ptime+ 100))
-           (wq-sreplay wq-pred-repeat
+           (wq-delay (ranks+ 100))
+           (wq-sreplay pred-repeat
                        1)
            event-c
-           (wq-replay wq-pred-repeat
+           (wq-replay pred-repeat
                       1))
  
     ;; Equivalent to:
  
     (queue event-a
            event-b
-           (wq-delay (wq-ptime+ 100))
+           (wq-delay (ranks+ 100))
            event-b
            event-c
            event-a
            event-b
-           (wq-delay (wq-ptime+ 100))
+           (wq-delay (ranks+ 100))
            event-b
            event-c)
     ```
@@ -1172,7 +1235,7 @@
  
     ```clojure
     (queue event-a
-           (wq-delay (wq-ptime+ 500))
+           (wq-delay (ranks+ 500))
            event-b)
     ```
     
@@ -1195,11 +1258,11 @@
            customer-leaves)
     ``` 
    
-    Unless something more sophisticated is needed, `ctx->ranks` will often be the result of [[wq-ptime+]].
+    Unless something more sophisticated is needed, `ctx->ranks` will often be the result of [[ranks+]].
    
-    As an operation (here, using [[wq-ptime+]])(see [[op-applier]]):
+    As an operation (here, using [[ranks+]])(see [[op-applier]]):
     ```clojure
-    [::wq-delay [::wq-ptime+ 500]]
+    [::wq-delay [::ranks+ 500]]
     ```"
  
     ;; TODO. Document that returning nil ranks does not do anything.
@@ -1213,10 +1276,24 @@
    ([ctx->ranks ctx]
    
     (if-some [ranks (ctx->ranks ctx)]
-      (e-dissoc (e-conj ctx
-                        ranks
-                        (e-get ctx)))
+      (wq-dissoc (e-conj ctx
+                         ranks
+                         (e-get ctx)))
       ctx))))
+
+
+
+
+(defn wq-dissoc
+
+  ""
+
+  [ctx]
+
+  (update ctx
+          ::e-flat
+          dissoc
+          ::queue))
 
 
 
@@ -1290,7 +1367,7 @@
 
 
 (?
- (defn wq-pred-repeat
+ (defn pred-repeat
  
    "Example of a predicate meant to be used with [[wq-sreplay]].
    
@@ -1302,7 +1379,7 @@
    
     As an operation (see [[op-applier]]):
     ```clojure
-    [::wq-pred-repeat 3]
+    [::pred-repeat 3]
     ```"
  
    [_ctx n]
@@ -1313,40 +1390,9 @@
 
 
 
-(?
- (defn wq-ptime+
- 
-   "Produces a function ctx -> ranks, useful for other `wq-XXX` functions such as [[wq-delay]].
- 
-    Fetches the ranks of the current flat event and updates its ptime by adding `ptime+`.
- 
-    Throws if `ptime+` < 0, as time travel is forbidden.
-   
-    As an operation, see [[wq-delay]]."
- 
-   ([ptime+]
- 
-    (? (partial wq-ptime+
-                ptime+)))
- 
-
-   ([ptime+ ctx]
- 
-    (when (neg? ptime+)
-      (throw (ex-info "Cannot add negative ptime to current ranks"
-                      {::ctx    ctx
-                       ::ptime+ ptime})))
-    (update (ranks ctx)
-            0
-            +
-            ptime+))))
-
-
-
-
 (defn- -replay-captured
 
-  ;; Restore the queue that needs to be replayed.
+  ;; Restores the queue that needs to be replayed.
 
   [ctx]
 
@@ -1397,7 +1443,7 @@
    "Similar to [[wq-replay]] but `pred` is stateful. It is called with the `ctx` and (initially) the `seed`.
     Returning anything but nil is considered as truthy and is stored as state replacing `seed` in the next call.
  
-    See [[wq-captured]] for an example with [[wq-pred-repeat]].
+    See [[wq-captured]] for an example with [[pred-repeat]].
    
     As an operation (see [[op-applier]]):
     ```clojure
@@ -1460,20 +1506,21 @@
 ;;;;;;;;;; @[flows]  Creating and managing flows
 
 
-(defn f-end
+(defn end-flow
 
-  "Is mainly used to end an an infinite flow (see [[f-infinite]]).
+  "Is mainly used to end an an infinite flow (see [[infinite]]).
 
-   Can also be used inside a finite flow is it needs to end sooner than expected (see [[f-finite]] and [[f-sampled]]).
+   Can also be used inside a finite flow is it needs to end sooner than expected (see [[finite]] and [[sampled-finite]]).
   
    Resumes the execution of the rest of the queue when the flow was created.
   
-   See [[f-infinite]] for an example."
+   See [[infinite]] for an example."
 
   [ctx]
 
   (let [current-path (path ctx)
-        flow-path    (f-path current-path)
+        flow-path    (cons ::flows
+                           current-path)
         flow-leaf    (get-in ctx
                              flow-path)
         ctx-2        (void/dissoc-in ctx
@@ -1490,7 +1537,7 @@
 
 (defn- -sample
 
-  ;; Samples a flow.
+  ;; Samples a specific flow.
 
   [ctx ptime path ranks-init flow]
 
@@ -1499,7 +1546,7 @@
                            {::path  path
                             ::ranks (assoc ranks-init
                                            0
-                                             ptime)}))]
+                                           ptime)}))]
      (if-some [q (not-empty (e-get ctx-2))]
        (-exec-q ctx-2
                 q)
@@ -1510,7 +1557,7 @@
 
 (defn- -sample-walk
 
-  ;; Cf. [[f-sample]]
+  ;; Cf. [[sample]]
 
   [ctx ptime path node]
 
@@ -1533,7 +1580,7 @@
 
 
 (?
- (defn f-sample
+ (defn sample
  
    "Schedules a sample, now or at the given `ranks`, at the `path` of the current flat event or the given one.
  
@@ -1545,11 +1592,11 @@
     The way it works garantees deduplication, meaning that no matter how and how many times a sample is scheduled for
     a given ptime, it will ultimately happen only once.
  
-    See also [[f-infinite]].
+    See also [[infinite]].
  
     As an operation (see [[op-applier]]):
     ```clojure
-    [::f-sample]
+    [::sample]
     ```"
  
    ;; TODO. Doc ctx->ranks
@@ -1557,7 +1604,7 @@
  
    ([]
  
-    f-sample)
+    sample)
  
  
    ([ctx]
@@ -1572,7 +1619,8 @@
                       (::ptime ctx)
                       current-path
                       (get-in ctx
-                              (f-path current-path)))
+                              (cons ::flows
+                                    current-path)))
         ctx)))
  
  
@@ -1582,7 +1630,7 @@
       (e-conj ctx
               ranks
               (path ctx)
-              f-sample)
+              sample)
       ctx))))
 
 
@@ -1592,14 +1640,13 @@
 
   ;; Associates a new flow and everything it needs for resuming the queue later.
 
-  ;; TODO. Sample right away instead of associng to ::flows-dedup
-
   [ctx flow]
 
   (let [current-path  (path ctx)
         current-ranks (ranks ctx)]
    (-> ctx
-       (assoc-in (f-path current-path)
+       (assoc-in (cons ::flows
+                       current-path)
                  {::flow       flow
                   ::ranks-init current-ranks
                   ::queue      (e-get ctx)})
@@ -1607,35 +1654,35 @@
                 current-path
                 current-ranks
                 flow)
-       e-dissoc)))
+       wq-dissoc)))
 
 
 
 
 (?
- (defn f-infinite 
+ (defn infinite 
  
    "A flow is akin to an event. While events happen at precisely their ranks and have no concept of duration,
-    flows last for an interval of time. They are sampled when needed, decided by the user, by using [[f-sample]].
+    flows last for an interval of time. They are sampled when needed, decided by the user, by using [[sample]].
  
     An \"infinite\" flow is either endless or ends at a moment that is not known in advance (eg. when the context
-    satifies some condition not knowing when it will occur). It can be ended using `f-end`.
+    satifies some condition not knowing when it will occur). It can be ended using `end-flow`.
  
     Here is a simple example of an infinite flow that increments a value and schedules samples itself. In other
     words, that value will be incremented every 500 time units until it is randomly decided to stop. Then, the rest
     of the queue is resumed (event-a and event-b after a delay of 150 time units).
  
     ```clojure
-    (dsim/queue (f-infinite (fn flow [ctx]
+    (dsim/queue (infinite (fn flow [ctx]
                               (let [ctx-2 (update-in ctx
                                                      (path ctx)
                                                      inc)]
                                 (if (< (rand)
                                        0.1)
-                                  (f-end ctx-2)
-                                  (f-sample ctx-2
-                                            (wq-ranks+ ctx-2
-                                                         [500]))))))
+                                  (end-flow ctx-2)
+                                  (sample ctx-2
+                                          (wq-ranks+ ctx-2
+                                                     [500]))))))
                 (wq-delay (wq-ranks+ [150]))
                 event-a
                 event-b)
@@ -1647,18 +1694,18 @@
    
     When created, a flow is automatically sampled at the same ptime for initialization.
    
-    See also [[f-path]].
+    See also [[flow-path]].
    
     As an operation:
     ```clojure
-    [::f-infinite [:your-flow]]
+    [::infinite [:your-flow]]
     ```"
  
    ;; TODO. Document relative ptime.
  
    ([flow]
  
-    (? (partial f-infinite
+    (? (partial infinite
                 flow)))
  
 
@@ -1676,9 +1723,9 @@
 
 
 
-(defn- -f-finite
+(defn- -finite
 
-  ;; Cf. [[f-finite]] and [[f-sampled]]
+  ;; Cf. [[finite]] and [[sampled-finite]]
 
   [ctx duration flow after-sample]
 
@@ -1697,25 +1744,26 @@
                                                   e-ptime))]
                       (if (>= e-ptime
                               1)
-                        (f-end (update ctx-3
-                                       ::e-flat
-                                       dissoc
-                                       ::ptime))
+                        (end-flow (update ctx-3
+                                          ::e-flat
+                                          dissoc
+                                          ::ptime))
                         (if after-sample
                           (after-sample ctx-3
                                         end)
                           ctx-3)))))
-        (f-sample (wq-ptime+ duration)))))
+        (rel-conj (ranks+ duration)
+                  sample))))
 
 
 
 
 (?
- (defn f-finite
+ (defn finite
  
-   "Similar to [[f-infinite]]. However, the flow is meant to last as long as the given `duration`.
+   "Similar to [[infinite]]. However, the flow is meant to last as long as the given `duration`.
  
-    Knowing the `duration` means [[f-end]] will be called automatically after that interval of time. Also,
+    Knowing the `duration` means [[end-flow]] will be called automatically after that interval of time. Also,
     before each sample, the ptime is linearly normalized to a value between 0 and 1 inclusive. In simpler terms,
     the value at [::e-flat ::ptime] (also returned by [[ptime]]) is the percentage of completion for that flow.
  
@@ -1723,45 +1771,45 @@
    
     As an operation (see [[op-applier]]):
     ```clojure
-    [::f-finite [:your-flow]]
+    [::finite [:your-flow]]
     ```"
  
    ([duration flow]
  
-    (? (partial f-finite
+    (? (partial finite
                 duration
                 flow)))
  
  
    ([duration flow ctx]
  
-    (-f-finite ctx
-               duration
-               flow
-               nil))))
+    (-finite ctx
+             duration
+             flow
+             nil))))
 
 
 
 
 (?
- (defn f-sampled
+ (defn sampled-finite
  
-   "Just like [[f-finite]] but eases the process of repeatedly sampling the flow.
+   "Just like [[finite]] but eases the process of repeatedly sampling the flow.
    
     After each sample, starting at initialization, schedules another one using `ctx->ranks` (see the commonly
-    used [[wq-ptime+]]), maxing out the ptime at the ptime of completion so that the forseen interval will
+    used [[ranks+]]), maxing out the ptime at the ptime of completion so that the forseen interval will
     not be exceeded.
    
     As an operation (see [[op-applier]]):
     ```
-    [::f-sampled [::wq-ptime+ 500]
+    [::sampled-finite [::ranks+ 500]
                  4200
                  [:your-flow]]
     ```"
  
    ([ctx->ranks duration flow]
  
-    (? (partial f-sampled
+    (? (partial sampled-finite
                 ctx->ranks
                 duration
                 flow)))
@@ -1769,16 +1817,15 @@
  
    ([ctx->ranks duration flow ctx]
   
-    (-f-finite ctx
+    (-finite ctx
                duration
                flow
-               (fn schedule-sampling [ctx ptime-end]
-                 (f-sample ctx
-                           (comp (fn before-end [[ptime-scheduled :as ranks]]
-                                   (when (some-> ptime-scheduled
-                                                 (< ptime-end))
-                                     ranks))
-                                 ctx->ranks)))))))
+               (fn schedule-sampling [ctx-2 ptime-end]
+                 (if-some [ranks (ctx->ranks ctx-2)]
+                   (e-conj ctx-2
+                           ranks
+                           sample)
+                   ctx-2))))))
 
 
 
@@ -1797,7 +1844,7 @@
 
    ([ctx->ranks path ctx]
  
-    (let [ctx-2 (f-sample ctx)]
+    (let [ctx-2 (sample ctx)]
       (if-let [ranks (and (not (identical? ctx-2
                                            ctx))
                           (ctx->ranks ctx-2))]
@@ -1843,20 +1890,20 @@
 
   ""
 
-  [-sampler
-   e-stop
-   f-finite
-   f-infinite
-   f-sample
-   f-sampled
+  [-ranks+-mono
+   -ranks+-poly
+   -sampler
+   finite
+   infinite
    mirror
+   pred-repeat
+   sample
+   sampled-finite
    sampler
    stop
    wq-capture
    wq-delay
    wq-do!
    wq-exec
-   wq-pred-repeat
-   wq-ptime+
    wq-replay
    wq-sreplay])

@@ -181,7 +181,7 @@ happy? How does it impact the world, anything?
                   feeling-happy))
 ```
 
-Our universe it called a `ctx` (context). It contains some state as well as the
+Our universe is called a `ctx` (context). It contains some state as well as the
 events modifying that state through time. Starting from an empty map, we have
 scheduled happiness for path `[:characters :little-prince]` at ranks `[42]`,
 and void transformed into world. The API provides several `e-XXX` functions for
@@ -351,7 +351,7 @@ Indeed, we check the distinctive features of DES:
 - An event is an instantaneous change in state having no duration.
 - An event happens at one specific point in time.
 - Time moves by jumping from event to event and from point in time to point in
-time. Between two point in times, in the absence of events, nothing happens, no
+time. Between two points in time, in the absence of events, nothing happens, no
 matter how long the time interval.
 
 In addition:
@@ -532,7 +532,7 @@ clean it is not executed? That would result in memory leaks.
 
 Instead, we can rely on an understated but brilliant feature of Clojure:
 metadata. An executing event function always has access to its queue, the
-current working queue. By storing state needed by the queue in it own metadata,
+current working queue. By storing state needed by the queue in its own metadata,
 that state will be garbage-collected whenever the queue is disposed of.
 Wherever the queue goes, its metadata follows. It does not pollute the global
 state in the `ctx`.
@@ -661,7 +661,7 @@ Modelling randomness is a huge topic. One thing is certain, generating random
 values usually follows a particular statistical distribution in order to be
 more realistic and more representative of the real world.
 
-If you know what this is all about, they we point you to the excellent
+If you know what this is all about, then we point you to the excellent
 [kixi.stats](https://github.com/MastodonC/kixi.stats) library and more
 specifically to the [kixi.stats.distribution](https://cljdoc.org/d/kixi/stats/0.5.2/api/kixi.stats.distribution<Paste>) namespace
 which provides ways for randomly sampling common statistical distributions.
@@ -673,7 +673,7 @@ moment. Which does not mean you should not be curious and research the topic.
 
 In a continuous simulation, time does not jump. It gradually and constantly
 flows, much like in our universe. Remember that in discrete-event simulation,
-between events at two consecutive point in times, nothing happens, regardless of
+between events at two consecutive points in time, nothing happens, regardless of
 how long the interval in between. In a continuous simulation, because time
 flows, between two points in times resides an infinity of points in time and
 thus, an infinity of states. The fall of a ball is an example of a continuous
@@ -864,7 +864,7 @@ configured, and then the engine does its thing. Events create other events,
 usually, and there it goes. As seen, we can use `dvlopt.dsim/historic` on an
 engine in order to obtain a lazy sequence of all intermediary steps (points in
 time when using a `ptime-engine`). This is perfect for a whole category of
-optimization problems and other scientific endaveours, or drawing an
+scientific endaveours like optimization problems, or for drawing
 non-interactive animations.
 
 In an online simulation, our virtual world interacts with the real world. Games
@@ -908,7 +908,7 @@ serialization is needed. Naturally, it is assumed the user is familiar with
 ### When using Transit <a name="transit">
 
 The [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) library currently
-supports [Nippy](https://github.com/ptaoussanis/nippy) as well as Transit. However, Transit does not directly supports queues and does not distinguish between sorted maps and unsorted ones.
+supports [Nippy](https://github.com/ptaoussanis/nippy) as well as Transit. However, Transit does not directly support queues and does not distinguish between sorted maps and unsorted ones.
 
 Transit remains pretty much the only available option when exchanging such data
 between Clojure and Clojurescript. The following package provides what is needed
@@ -946,7 +946,7 @@ event being asynchronous in our whole universe forces us to go full async.
 Before committing to such a radical decision, we prefer waiting for feedback from the community.
 
 Some use cases do not need anything special due to the fact that a `ctx` is
-completely immutable. Notably, optimizations problems. The main purpose of
+completely immutable. Notably, optimization problems. The main purpose of
 simulation is to test likely outcomes given some initial parameters in the hope
 we can find the best parameters. It is a matter of exploration. At any
 interesting moment, we can take our current `ctx`, change a few things, and
@@ -962,7 +962,7 @@ leverage the [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) library) and thu
 
 ## Writing your own specific engine <a name="writing-engine">
 
-The `ptime-engine` is probably what you want and what we have discussed. A `basic-engine` also exists which has no concept of "point in times" nor flows, only events at ranks providing ordering.
+The `ptime-engine` is probably what you want and what we have discussed. A `basic-engine` also exists which has no concept of "points in time" nor flows, only events at ranks providing ordering.
 
 They both built upon `dvlopt.dsim/engine*`. An advanced user could build
 another specific "time-based engine" as well.

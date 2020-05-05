@@ -532,7 +532,7 @@ clean it is not executed? That would result in memory leaks.
 
 Instead, we can rely on an understated but brilliant feature of Clojure:
 metadata. An executing event function always has access to its queue, the
-current working queue. By storing state needed by the queue in it own metadata,
+current working queue. By storing state needed by the queue in its own metadata,
 that state will be garbage-collected whenever the queue is disposed of.
 Wherever the queue goes, its metadata follows. It does not pollute the global
 state in the `ctx`.
@@ -661,7 +661,7 @@ Modelling randomness is a huge topic. One thing is certain, generating random
 values usually follows a particular statistical distribution in order to be
 more realistic and more representative of the real world.
 
-If you know what this is all about, they we point you to the excellent
+If you know what this is all about, then we point you to the excellent
 [kixi.stats](https://github.com/MastodonC/kixi.stats) library and more
 specifically to the [kixi.stats.distribution](https://cljdoc.org/d/kixi/stats/0.5.2/api/kixi.stats.distribution<Paste>) namespace
 which provides ways for randomly sampling common statistical distributions.
@@ -671,7 +671,7 @@ moment. Which does not mean you should not be curious and research the topic.
 
 ## Continuous and hybrid simulation <a name="continuous-hybrid">
 
-In a continuous simulation, time does not jumps. It gradually and constantly
+In a continuous simulation, time does not jump. It gradually and constantly
 flows, much like in our universe. Remember that in discrete-event simulation,
 between events at two consecutive point in times, nothing happens, regardless of
 how long the interval in between. In a continuous simulation, because time

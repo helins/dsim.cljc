@@ -864,7 +864,7 @@ configured, and then the engine does its thing. Events create other events,
 usually, and there it goes. As seen, we can use `dvlopt.dsim/historic` on an
 engine in order to obtain a lazy sequence of all intermediary steps (points in
 time when using a `ptime-engine`). This is perfect for a whole category of
-optimization problems and other scientific endaveours, or drawing an
+scientific endaveours like optimization problems, or for drawing
 non-interactive animations.
 
 In an online simulation, our virtual world interacts with the real world. Games

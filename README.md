@@ -181,7 +181,7 @@ happy? How does it impact the world, anything?
                   feeling-happy))
 ```
 
-Our universe it called a `ctx` (context). It contains some state as well as the
+Our universe is called a `ctx` (context). It contains some state as well as the
 events modifying that state through time. Starting from an empty map, we have
 scheduled happiness for path `[:characters :little-prince]` at ranks `[42]`,
 and void transformed into world. The API provides several `e-XXX` functions for

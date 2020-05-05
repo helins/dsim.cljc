@@ -386,7 +386,7 @@ time. Assuming a world where 1 time unit represents 1 hour:
 ```clojure
 (def sun-activity
      (dsim/queue sunrise
-                 (dsim/wq-delay (dsim/rank+ 24))
+                 (dsim/wq-delay (dsim/rank+ 12))
                  sunset))
 ```
 
@@ -394,7 +394,7 @@ First, the sun rises. Right away, `dvlopt.dsim/wq-delay` grabs the rest of the
 queue and schedules it for later. When? It accepts a function `ctx -> ranks` and
 once again we use `dvlopt.dsim/rank+` which returns such a function that will
 find the current ranks and update the first one (denoting the point in time,
-here in hours) by adding 24 (hours).
+here in hours) by adding 12 (hours).
 
 It is best to use a queue here. We know that `sunset` happens after `sunrise`,
 but without a `sunrise` there should be no `sunset`.

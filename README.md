@@ -908,7 +908,7 @@ serialization is needed. Naturally, it is assumed the user is familiar with
 ### When using Transit <a name="transit">
 
 The [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) library currently
-supports [Nippy](https://github.com/ptaoussanis/nippy) as well as Transit. However, Transit does not directly supports queues and does not distinguish between sorted maps and unsorted ones.
+supports [Nippy](https://github.com/ptaoussanis/nippy) as well as Transit. However, Transit does not directly support queues and does not distinguish between sorted maps and unsorted ones.
 
 Transit remains pretty much the only available option when exchanging such data
 between Clojure and Clojurescript. The following package provides what is needed
@@ -946,7 +946,7 @@ event being asynchronous in our whole universe forces us to go full async.
 Before committing to such a radical decision, we prefer waiting for feedback from the community.
 
 Some use cases do not need anything special due to the fact that a `ctx` is
-completely immutable. Notably, optimizations problems. The main purpose of
+completely immutable. Notably, optimization problems. The main purpose of
 simulation is to test likely outcomes given some initial parameters in the hope
 we can find the best parameters. It is a matter of exploration. At any
 interesting moment, we can take our current `ctx`, change a few things, and

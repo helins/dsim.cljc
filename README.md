@@ -351,7 +351,7 @@ Indeed, we check the distinctive features of DES:
 - An event is an instantaneous change in state having no duration.
 - An event happens at one specific point in time.
 - Time moves by jumping from event to event and from point in time to point in
-time. Between two point in times, in the absence of events, nothing happens, no
+time. Between two points in time, in the absence of events, nothing happens, no
 matter how long the time interval.
 
 In addition:
@@ -673,7 +673,7 @@ moment. Which does not mean you should not be curious and research the topic.
 
 In a continuous simulation, time does not jump. It gradually and constantly
 flows, much like in our universe. Remember that in discrete-event simulation,
-between events at two consecutive point in times, nothing happens, regardless of
+between events at two consecutive points in time, nothing happens, regardless of
 how long the interval in between. In a continuous simulation, because time
 flows, between two points in times resides an infinity of points in time and
 thus, an infinity of states. The fall of a ball is an example of a continuous
@@ -962,7 +962,7 @@ leverage the [dvlopt/fdat](https://github.com/dvlopt/fdat.cljc) library) and thu
 
 ## Writing your own specific engine <a name="writing-engine">
 
-The `ptime-engine` is probably what you want and what we have discussed. A `basic-engine` also exists which has no concept of "point in times" nor flows, only events at ranks providing ordering.
+The `ptime-engine` is probably what you want and what we have discussed. A `basic-engine` also exists which has no concept of "points in time" nor flows, only events at ranks providing ordering.
 
 They both built upon `dvlopt.dsim/engine*`. An advanced user could build
 another specific "time-based engine" as well.

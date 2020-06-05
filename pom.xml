@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>dvlopt</groupId>
   <artifactId>dsim</artifactId>
-  <version>1.0.0-beta0</version>
+  <version>1.0.0-beta1</version>
   <name>DSim</name>
   <description>Idiomatic and purely functional simulation library</description>
   <url>https://github.com/dvlopt/dsim.cljc</url>

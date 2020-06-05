@@ -633,7 +633,7 @@ exception bubbles up to the outer queue (if there is one) and the process
 repeats. If it does find one, then it calls it with :
 
 ```clojure
-{::ctx       "The `ctx`, safe to use, 
+{::ctx       "The `ctx`, safe to use"
  ::ctx-inner "Only present if the exception has been thrown in an inner queue
               that did not handle it. Can be used to know the state of the `ctx`
               right before the exception. Should be discard beyond that use
@@ -671,7 +671,7 @@ moment. Which does not mean you should not be curious and research the topic.
 
 ## Continuous and hybrid simulation <a name="continuous-hybrid">
 
-In a continuous simulation, time does not jumps. It gradually and constantly
+In a continuous simulation, time does not jump. It gradually and constantly
 flows, much like in our universe. Remember that in discrete-event simulation,
 between events at two consecutive point in times, nothing happens, regardless of
 how long the interval in between. In a continuous simulation, because time

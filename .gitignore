@@ -9,7 +9,7 @@
 /.nrepl-port
 .hgignore
 .hg/
-
+.rebel_readline_history
 
 // For running kaocha-cljs
 
@@ -17,3 +17,5 @@
 node_modules/
 package-lock.json
 out
+
+

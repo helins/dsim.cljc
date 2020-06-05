@@ -24,14 +24,17 @@
             [taoensso.nippy              :as nippy]))
 
 
-
-
 ;;;;;;;;;;
+
+
+;(require '[nrepl.server])  (defonce server (nrepl.server/start-server :port 4001))
+
 
 
 (comment
 
 
   (fdat/register dsim/serializable)
+
 
   )

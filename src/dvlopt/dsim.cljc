@@ -916,8 +916,8 @@
                                   (let [stack-2 (pop stack)]
                                     (if (empty? q-outer)
                                       (recur stack-2)
-                                      [q-outer
-                                       stack-2]))))]
+                                      [stack-2
+                                       q-outer]))))]
             (recur (update ctx-2
                            ::e-flat
                            void/assoc-strict

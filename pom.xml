@@ -38,7 +38,7 @@
     <dependency>
       <groupId>dvlopt</groupId>
       <artifactId>rktree</artifactId>
-      <version>0.0.0-beta0</version>
+      <version>0.0.0-beta1</version>
     </dependency>
     <dependency>
       <groupId>dvlopt</groupId>

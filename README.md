@@ -990,6 +990,8 @@ grant you any benefit at all even if you do not end up using DSim.
 
 ## Run tests <a name="run-tests">
 
+### Using Kaocha
+
 Run all tests (JVM and JS based ones):
 
 ```bash
@@ -1018,6 +1020,22 @@ For Clojurescript in the browser (which might need to be already running):
 ```bash
 $ ./bin/kaocha browser
 ```
+
+### Using Chui for browser testing
+
+For more convenient and thorough browser testing:
+
+```bash
+$ ./bin/chui $COMMAND $ARGS
+```
+
+Where `$COMMAND` is `compile`, `watch`, or `release` (for testing a build with
+advanced optimizations). When using `release`, providing `--debug` is extemely
+useful when something goes wrong (eg. names are not munged in stacktraces).
+
+When ready, open `./chui/index.html` in your favorite browser.
+
+
 ## License
 
 Copyright © 2019 Adam Helinski

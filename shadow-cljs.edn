@@ -1,0 +1,15 @@
+{:builds
+ {:test
+  {:target    :browser-test
+   :runner-ns lambdaisland.chui.shadow.browser-runner
+   :test-dir  "chui"}}
+
+ :deps
+ {:alias [:cljs]}
+ 
+ :dev-http
+ {8080 "public"}
+ 
+ :nrepl
+ {:port 4000}
+ }

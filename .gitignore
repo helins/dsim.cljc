@@ -19,3 +19,16 @@ package-lock.json
 out
 
 
+// Shadow-cljs
+
+.cljs
+.shadow-cljs/
+node_modules/
+out
+package.json
+package-lock.json
+/public/*
+!/public/index.html
+resources/
+chui/*
+!/chui/index.html

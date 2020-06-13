@@ -1133,6 +1133,24 @@
 
 
 
+(defn- -until
+
+  ;; Helper for function artity 2 produced by [[historic]].
+
+  [ctx ptime-max history]
+
+  (let [next-ptime (next-ptime ctx)]
+    (if (and next-ptime
+             (<= next-ptime
+                 ptime-max))
+      (cons ctx
+            (lazy-seq
+              (-until (first history)
+                      ptime-max
+                      (rest history))))
+      (list ctx))))
+
+
 
 (defn historic
 
@@ -1144,11 +1162,23 @@
 
   [engine]
 
-  (fn run-lazy [ctx]
-    (take-while some?
-                (rest (iterate engine
-                               ctx)))))
+  (fn run-lazy
+    
+    ([ctx]
+     (take-while some?
+                 (rest (iterate engine
+                                ctx))))
 
+    ([ctx ptime-max]
+     (let [history (run-lazy ctx)]
+       (lazy-seq
+         (let [ctx-first (first history)]
+           (when (and ctx-first
+                      (<= (::ptime ctx-first)
+                          ptime-max))
+             (-until ctx-first
+                     ptime-max
+                     (rest history)))))))))
 
 
 

@@ -1,3 +1,2 @@
 #!/usr/bin/env sh
-. $(dirname "$0")/cleanjs
 clojure -A:test -m kaocha.runner "$@"

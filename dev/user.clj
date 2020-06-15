@@ -27,8 +27,11 @@
 ;;;;;;;;;;
 
 
-;(require '[nrepl.server])  (defonce server (nrepl.server/start-server :port 4001))
+(require '[nrepl.server])  (defonce server (nrepl.server/start-server :port 4000))
 
+
+(def run
+     (dsim/historic (dsim/ptime-engine)))
 
 
 (comment

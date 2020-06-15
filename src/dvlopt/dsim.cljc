@@ -26,8 +26,6 @@
                                  PersistentQueue))))
 
 
-
-
 ;;;;;;;;;; API structure (searchable for easy navigation)
 ;;
 ;; @[queue]   Queues
@@ -57,12 +55,10 @@
 
 ;; Async + parallelize by ranks?
 ;;
-;; By definition, all events with the same ranking  are independent, meaning that they
+;; By definition, all events with the same ranking are independent, meaning that they
 ;; can be parallelized without a doubt if needed. But due to the non-blocking nature of
 ;; JS, it is hard to find a portable solution without buying completely into core.async,
 ;; meaning going async all the way...
-
-
 
 
 ;;;;;;;;;; Gathering all declarations
@@ -72,8 +68,6 @@
          path
          wq-dissoc
          wq-vary-meta)
-
-
 
 
 ;;;;;;;;;; @[queue]  Queues
@@ -112,8 +106,6 @@
              x))
 
 
-
-
 ;;;;;;;;;; @[misc]  Miscellaneous functions
 
 
@@ -138,9 +130,6 @@
                                millis)))))
 
 
-
-
-
 ;;;;;;;;;; @[scale]  Linear scaling of numerical values
 
 
@@ -155,7 +144,6 @@
   (double (+ (* v-norm
                 interval)
              min-v)))
-
 
 
 
@@ -201,7 +189,6 @@
 
 
 
-
 (defn minmax-norm
 
   "Min-max normalization, linearly scales `x` to fit between 0 and 1 inclusive.
@@ -223,8 +210,6 @@
              interval)))
 
 
-
-
 ;;;;;;;;; @[ctx]  Generalities about contextes
 
 
@@ -243,7 +228,6 @@
 
    (into [::flows]
          (path ctx))))
-
 
 
 
@@ -277,7 +261,6 @@
 
 
 
-
 (defn path
 
   "Returns the path of the currently executing flat event (ie. under `[::e-flat ::path]`)."
@@ -285,7 +268,6 @@
   [ctx]
 
   (::path (::e-flat ctx)))
-
 
 
 
@@ -304,7 +286,6 @@
 
 
 
-
 (defn ranks
 
   "Returns the ranks of the currently executing flat event (ie. under `[::e-flat ::ranks]`)."
@@ -312,7 +293,6 @@
   [ctx]
 
   (::ranks (::e-flat ctx)))
-
 
 
 
@@ -355,7 +335,6 @@
 
 
 
-
 (?
  (defn ranks+
  
@@ -389,7 +368,6 @@
 
 
 
-
 (defn reached?
 
   "Uses [[ptime]] to tell if a certain ptime has been reached."
@@ -398,7 +376,6 @@
 
   (>= (ptime ctx)
       ptime-target))
-
 
 
 
@@ -417,8 +394,6 @@
                       ranks))))
 
 
-
-
 ;;;;;;;;;; @[events]  Adding, removing, and modifying events
 
 
@@ -432,7 +407,6 @@
                   {::ctx   ctx
                    ::path  path
                    ::ranks ranks})))
-
 
 
 
@@ -478,7 +452,6 @@
            ranks
            path
            event)))
-
 
 
 
@@ -528,7 +501,6 @@
 
 
 
-
 (defn e-dissoc
   
   "Cancels a scheduled event.
@@ -561,7 +533,6 @@
                   (some-> events
                           (rktree/dissoc ranks
                                          path))))))
-
 
 
 
@@ -619,7 +590,6 @@
 
 
 
-
 (defn e-get
 
   "Retrieves a scheduled event.
@@ -656,7 +626,6 @@
 
 
 
-
 (defn e-isolate
 
   "Isolating means that the current working queue or the requested queue in the event tree
@@ -688,7 +657,6 @@
              (fn -e-isolate [event]
                (some-> event
                        queue)))))
-
 
 
 
@@ -736,7 +704,6 @@
                                              ranks
                                              path
                                              "Can only `e-push` to nil or an event"))))))
-
 
 
 
@@ -810,7 +777,6 @@
 
 
 
-
 (defn rel-conj
 
   "Adds `event` in the event tree at the same path as the currently executing flat event, at some future ranks.
@@ -826,8 +792,6 @@
             ranks
             event)
     ranks))
-
-
 
 
 ;;;;;;;;;; @[ngin]  Building time-based event engines
@@ -858,10 +822,9 @@
                             err)))))))
 
 
-
 (defn- -exec-ef
 
-  ;; Executes a single event function .
+  ;; Executes a single event function.
   ;;
   ;; If it throws, it tries to find an error handler from the present queue or outers one
   ;; in the stack. If an error handler returns nil, meaning it does not know what to do,
@@ -876,7 +839,6 @@
       (-catched ctx
                 q
                 err))))
-
 
 
 
@@ -930,7 +892,6 @@
 
 
 
-
 (defn- -exec-e
 
   ;; Executes an event, which can be a function or a queue of events.
@@ -966,7 +927,6 @@
 
   (dissoc ctx
           ::e-flat))
-
 
 
 
@@ -1020,7 +980,6 @@
 
 
 
-
 (defn basic-engine
 
   "Returns a function `ctx -> ctx` which pops the next ranked events and executes them.
@@ -1039,7 +998,6 @@
             period-start
             (run events)
             (some-> period-end))))))
-
 
 
 
@@ -1201,8 +1159,6 @@
         (dissoc ::flows)))))
 
 
-
-
 ;;;;;;;;;; @[wq]  Relative to the currently executed queue (aka. the "working queue")
 ;;
 ;;
@@ -1274,7 +1230,6 @@
 
 
 
-
 (?
  (defn wq-delay
  
@@ -1326,7 +1281,6 @@
 
 
 
-
 (defn wq-dissoc
 
   "Removes the current working queue, stopping effectively its execution."
@@ -1337,7 +1291,6 @@
           ::e-flat
           dissoc
           ::queue))
-
 
 
 
@@ -1357,7 +1310,6 @@
 
    (side-effect)
    ctx)))
-
 
 
 
@@ -1385,7 +1337,6 @@
 
 
 
-
 (defn wq-meta
 
   "Returns the metadata of the current working queue.
@@ -1395,7 +1346,6 @@
   [ctx]
 
   (meta (e-get ctx)))
-
 
 
 
@@ -1417,7 +1367,6 @@
 
 
 
-
 (defn- -replay-captured
 
   ;; Restores the queue that needs to be replayed.
@@ -1431,7 +1380,6 @@
                           mta))
       (throw (ex-info "There is nothing captured to replay"
                       {::ctx ctx})))))
-
 
 
 
@@ -1457,7 +1405,6 @@
       (wq-vary-meta ctx
                     dsim.util/pop-stack
                     ::captured)))))
-
 
 
 
@@ -1498,7 +1445,6 @@
 
 
 
-
 (defn wq-vary-meta
 
   "Uses Clojure's `vary-meta` on the working queue.
@@ -1517,8 +1463,6 @@
                           (apply f
                                  (meta q)
                                  args)))))
-
-
 
 
 ;;;;;;;;;; @[flows]  Creating and managing flows
@@ -1551,7 +1495,6 @@
 
 
 
-
 (defn- -sample
 
   ;; Samples a specific flow.
@@ -1571,7 +1514,6 @@
 
 
 
-
 (defn- -sample-walk
 
   ;; Cf. [[sample]]
@@ -1587,14 +1529,13 @@
              (::ranks-init node)
              flow)
      (reduce-kv (fn deeper [ctx-2 k node-next]
-                  (-sample-walk ctx
+                  (-sample-walk ctx-2
                                 ptime
                                 (conj path
                                       k)
                                 node-next))
                 ctx
                 node)))
-
 
 
 
@@ -1649,7 +1590,6 @@
 
 
 
-
 (defn- -f-assoc
 
   ;; Associates a new flow and everything it needs for resuming the queue later,
@@ -1670,7 +1610,6 @@
                 current-ranks
                 flow)
        wq-dissoc)))
-
 
 
 
@@ -1734,7 +1673,6 @@
 
 
 
-
 (defn- -finite
 
   ;; Cf. [[finite]] and [[sampled-finite]]
@@ -1769,7 +1707,6 @@
 
 
 
-
 (?
  (defn finite
  
@@ -1794,7 +1731,6 @@
              duration
              flow
              nil))))
-
 
 
 
@@ -1829,7 +1765,6 @@
 
 
 
-
 (? 
  (defn- -sampler
  
@@ -1854,7 +1789,6 @@
                 (-sampler ctx->ranks
                           path))
         ctx-2)))))
-
 
 
 
@@ -1906,8 +1840,6 @@
                 (-sampler ctx->ranks
                           current-path)))
       ctx))))
-
-
 
 
 ;;;;;;;;;; @[fdat]  Serialization of whole contexts (events and flows included) via the `dvlopt.fdat` library

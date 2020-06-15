@@ -1,6 +1,6 @@
 {:deps
  {dvlopt/fdat         {:mvn/version "0.0.0-beta3"}
-  dvlopt/rktree       {:mvn/version "0.0.0-beta1"}
+  dvlopt/rktree       {:mvn/version "0.0.0-beta2"}
   dvlopt/void         {:mvn/version "1.0.1"}
   org.clojure/clojure {:mvn/version "1.10.1"}}
 

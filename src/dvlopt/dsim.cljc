@@ -1115,6 +1115,10 @@
   "Given an engine, returns a function `ctx` -> lazy sequence of each run until all events
    are executed.
   
+   This resulting  function optionally accepts `ptime-max` as second argument, in which case
+   history will stop when ptime is <= `ptime-max`. It is lazier than naïve solutions (eg. using
+   `take-while`) as it ensures that nothing is ran beyond `ptime-max`.
+  
    For instance, given a [[ptime-engine]], each element in the sequence will be a view of
    the `ctx` at a specific ptime."
 

@@ -1505,12 +1505,14 @@
 
   [ctx ptime path ranks-init flow]
 
-  (let [ctx-2 (flow (assoc ctx
+  (let [ctx-2 (flow (update ctx
                            ::e-flat
-                           {::path  path
-                            ::ranks (assoc ranks-init
-                                           0
-                                           ptime)}))]
+                           (fn update-e-flat [e-flat]
+                             {::path  path
+                              ::ranks (assoc ranks-init
+                                             0
+                                             ptime)
+                              ::stack (::stack e-flat)})))]
      (if-some [q (not-empty (e-get ctx-2))]
        (-exec-q ctx-2
                 q)

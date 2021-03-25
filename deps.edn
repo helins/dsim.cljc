@@ -1,36 +1,32 @@
-{:deps
- {dvlopt/fdat         {:mvn/version "0.0.0-beta3"}
-  dvlopt/rktree       {:mvn/version "0.0.0-beta2"}
-  dvlopt/void         {:mvn/version "1.0.1"}
-  org.clojure/clojure {:mvn/version "1.10.1"}}
-
- :paths
- ["src"]
-
- :aliases
+{:aliases
  {:cljs
   {:extra-deps {thheller/shadow-cljs {:mvn/version "2.9.10"}}
    :main-opts  ["-m" "shadow.cljs.devtools.cli"]}
 
   :deploy
-  {:extra-deps {deps-deploy {:mvn/version "0.0.9"}}
-   :main-opts  ["-m" "deps-deploy.deps-deploy" "deploy" "dsim.jar"]}
+  {:exec-args  {:artifact  "release.jar"
+                :installer :remote}
+   :exec-fn    deps-deploy.deps-deploy/deploy
+   :extra-deps {slipset/deps-deploy {:mvn/version "0.1.5"}}}
 
   :dev
   {:extra-deps  {com.taoensso/nippy        {:mvn/version "2.14.0"}
-                 criterium                 {:mvn/version "0.4.5"}
                  dvlopt/fdat.plugins.nippy {:mvn/version "0.0.0-beta2"}
                  kixi/stats                {:mvn/version "0.5.2"}
                  org.clojure/core.async    {:mvn/version "1.1.587"}}
-   :extra-paths ["dev"]}
+   :extra-paths ["src/dev"]}
 
   :jar
-  {:extra-deps {seancorfield/depstar {:mvn/version "0.5.2"}}
-   :main-opts  ["-m" "hf.depstar.jar" "dsim.jar"]}
+  {:exec-args    {:jar      "release.jar"
+                  :sync-pom true}
+   :exec-fn      hf.depstar/jar
+   :replace-deps {seancorfield/depstar {:mvn/version "2.0.171"}}}
 
   :install
-  {:extra-deps {deps-deploy {:mvn/version "0.0.9"}}
-   :main-opts  ["-m" "deps-deploy.deps-deploy" "install" "dsim.jar"]}
+  {:exec-args  {:artifact  "release.jar"
+                :installer :local}
+   :exec-fn    deps-deploy.deps-deploy/deploy
+   :extra-deps {slipset/deps-deploy {:mvn/version "0.1.5"}}}
 
   :test
   {:extra-deps  {com.cognitect/transit-clj   {:mvn/version "1.0.324"}
@@ -41,6 +37,16 @@
                  lambdaisland/chui           {:mvn/version "0.0.117"}
                  lambdaisland/kaocha         {:mvn/version "1.0-612"}
                  lambdaisland/kaocha-cljs    {:mvn/version "0.0-71"}}
-   :extra-paths ["test"
-                 "transit/src"
-                 "transit/test"]}}}
+   :extra-paths ["src/test"
+                 "transit/src/main"]}}
+ 
+ 
+ :deps
+ {dvlopt/fdat         {:mvn/version "0.0.0-beta3"}
+  dvlopt/rktree       {:mvn/version "0.0.0-beta2"}
+  dvlopt/void         {:mvn/version "1.0.1"}
+  org.clojure/clojure {:mvn/version "1.10.1"}}
+
+
+ :paths
+ ["src/main"]}

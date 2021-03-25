@@ -1,10 +1,9 @@
-TODO.txt
 /target
 /classes
 /checkouts
 *.jar
 *.class
-.cpcache
+/.cpcache
 /.lein-*
 /.nrepl-history
 /.nrepl-port
@@ -16,20 +15,18 @@ TODO.txt
 
 .cljs_node_repl/
 node_modules/
-package-lock.json
 out
 
-
 // Shadow-cljs
-
 .cljs
 .shadow-cljs/
 node_modules/
 out
 package.json
-package-lock.json
-/public/*
-!/public/index.html
-resources/
-chui/*
-!/chui/index.html
+
+/resources/public/*
+!/resources/public/index.html
+/resources/chui/*
+!/resources/chui/index.html
+
+/transit/.cpcache

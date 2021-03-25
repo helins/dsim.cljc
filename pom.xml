@@ -6,7 +6,7 @@
   <version>1.0.0-beta3</version>
   <name>DSim</name>
   <description>Idiomatic and purely functional simulation library</description>
-  <url>https://github.com/dvlopt/dsim.cljc</url>
+  <url>https://github.com/helins/dsim.cljc</url>
   <licenses>
     <license>
       <name>Eclipse Public License</name>
@@ -16,12 +16,14 @@
   <developers>
     <developer>
       <name>Adam Helinski</name>
+      <email>adam@helins.io</email>
+      <url>http://www.helins.io</url>
     </developer>
   </developers>
   <scm>
-    <url>https://github.com/dvlopt/dsim.cljc</url>
-    <connection>scm:git:git://github.com/dvlopt/dsim.cljc.git</connection>
-    <developerConnection>scm:git:ssh://git@github.com/dvlopt/dsim.cljc.git</developerConnection>
+    <url>https://github.com/helins/dsim.cljc</url>
+    <connection>scm:git:git://github.com/helins/dsim.cljc.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/helins/dsim.cljc.git</developerConnection>
     <tag>HEAD</tag>
   </scm>
   <dependencies>

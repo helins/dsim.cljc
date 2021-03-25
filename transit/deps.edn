@@ -1,18 +1,26 @@
-{:deps
- {org.clojure/clojure {:mvn/version "1.10.1"}}
-
- :paths
- ["src"]
-
- :aliases
+{:aliases
  {:deploy
-  {:extra-deps {deps-deploy {:mvn/version "0.0.9"}}
-   :main-opts  ["-m" "deps-deploy.deps-deploy" "deploy" "dsim_transit.jar"]}
+  {:exec-args  {:artifact  "release.jar"
+                :installer :remote}
+   :exec-fn    deps-deploy.deps-deploy/deploy
+   :extra-deps {slipset/deps-deploy {:mvn/version "0.1.5"}}}
 
   :jar
-  {:extra-deps {seancorfield/depstar {:mvn/version "0.5.2"}}
-   :main-opts  ["-m" "hf.depstar.jar" "dsim_transit.jar"]}
+  {:exec-args    {:jar      "release.jar"
+                  :sync-pom true}
+   :exec-fn      hf.depstar/jar
+   :replace-deps {seancorfield/depstar {:mvn/version "2.0.171"}}}
 
   :install
-  {:extra-deps {deps-deploy {:mvn/version "0.0.9"}}
-   :main-opts  ["-m" "deps-deploy.deps-deploy" "install" "dsim_transit.jar"]}}}
+  {:exec-args  {:artifact  "release.jar"
+                :installer :local}
+   :exec-fn    deps-deploy.deps-deploy/deploy
+   :extra-deps {slipset/deps-deploy {:mvn/version "0.1.5"}}}}
+
+ 
+ :deps
+ {}
+
+
+ :paths
+ ["src/main"]}

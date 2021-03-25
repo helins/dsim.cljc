@@ -1,17 +1,16 @@
-(ns user
+;; This Source Code Form is subject to the terms of the Mozilla Public
+;; License, v. 2.0. If a copy of the MPL was not distributed with this
+;; file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+
+(ns dvlopt.dsim.dev
 
   "For daydreaming in the REPL." 
 
-  (:require [clojure.core.async          :as a]
-            [clojure.repl]
-            [clojure.test                :as t]
-            [cognitect.transit           :as transit]
-            [criterium.core              :as C]
+  (:require [cognitect.transit           :as transit]
             [dvlopt.dsim                 :as dsim]
             [dvlopt.dsim.transit         :as dsim.transit]
             [dvlopt.dsim.util            :as dsim.util]
-            [dvlopt.dsim-test            :as dsim-test]
-            [dvlopt.dsim.util-test       :as dsim.util-test]
             [dvlopt.fdat                 :as fdat :refer [?]]
             [dvlopt.fdat.track           :as fdat.track]
             [dvlopt.fdat.plugins.nippy   :as fdat.plugins.nippy]
@@ -25,9 +24,6 @@
 
 
 ;;;;;;;;;;
-
-
-(require '[nrepl.server])  (defonce server (nrepl.server/start-server :port 4000))
 
 
 (def run

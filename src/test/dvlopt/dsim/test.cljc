@@ -19,8 +19,6 @@
                             ByteArrayOutputStream))))
 
 
-
-
 ;;;;;;;;;; Transit ser/de for testing that ctxs are indeed serializable
 
 
@@ -42,7 +40,6 @@
 
 
 
-
 (defn deserialize
 
   "Deserializes using Transit."
@@ -54,7 +51,6 @@
                     :json
                     {:handlers (dsim.transit/reader-handlers)})
     #?(:cljs x)))
-
 
 
 
@@ -74,7 +70,6 @@
           b)
        (= (meta a)
           (meta b))))
-
 
 
 ;;;;;;;;;; Time utilities
@@ -97,8 +92,6 @@
            (dsim/millis->utime 2000
                                0))
         "A phenomenon that does not happen does not last"))
-
-
 
 
 
@@ -185,7 +178,6 @@
 
 
 
-
 (t/deftest minmax-norm
 
 
@@ -198,8 +190,6 @@
     25  0.25
     50  0.5
     100 1))
-
-
 
 
 ;;;;;;;;; Generalities about contextes
@@ -225,8 +215,6 @@
                                 5)))
     (t/is (false? (dsim/reached? ctx
                                  15)))))
-
-
 
 
 ;;;;;;;;;; Events, flows, and utilities needed for testing engines
@@ -364,8 +352,6 @@
        n))))
 
 
-
-
 ;; <!> Not forgetting to register our functions
 
 (fdat/register [-event-inc
@@ -377,8 +363,6 @@
                 flow-infinite
                 flow-writer
                 stateless-pred?])
-
-
 
 
 ;;;;;;;;;; Adding, removing, and modifying events
@@ -404,7 +388,6 @@
 
 
 
-
 (t/deftest e-assoc
 
 
@@ -422,7 +405,6 @@
                        e-ranks
                        e-path))
         "In the event tree"))
-
 
 
 
@@ -474,7 +456,6 @@
                        e-ranks
                        e-path))
         "In the event tree to nil"))
-
 
 
 
@@ -544,7 +525,6 @@
 
 
 
-
 (t/deftest e-isolate
 
 
@@ -566,7 +546,6 @@
                          e-ranks
                          e-path))
           "In the event tree")))
-
 
 
 
@@ -631,8 +610,6 @@
           "In the event tree to a queue")))
 
 
-
-
 ;;;;;;;;;; Basic engines
 
 
@@ -652,9 +629,9 @@
           engine-2))))
 
 
+
 (def history
      (historic (dsim/basic-engine)))
-
 
 
 
@@ -687,7 +664,6 @@
           "Respecting order of events")))
 
 
-
 ;;;;;;;;;; Discrete-Event Engines
 
 
@@ -702,7 +678,6 @@
 
 
 
-
 (defn ctx-jump
 
   [n]
@@ -710,7 +685,6 @@
   (assoc (ctx-init n)
          ::dsim/ptime
          n))
-
 
 
 
@@ -732,7 +706,6 @@
 
 
 
-
 (def history-DE
      (historic (dsim/ptime-engine {::dsim/before (fn before [ctx]
                                                    (update ctx
@@ -742,7 +715,6 @@
                                                    (update ctx
                                                            :after
                                                            inc))})))
-
 
 
 (t/deftest ptime-engine
@@ -794,7 +766,6 @@
 
 
 
-
 (t/deftest error-handling
 
   (let [q-failing   (dsim/queue event-inc
@@ -825,7 +796,6 @@
 
 
 
-
 (t/deftest stop
 
   (t/is (= (ctx-jump 1)
@@ -838,7 +808,6 @@
                                               event-inc
                                               event-inc)))))
           "Stopping everything"))
-
 
 
 ;;;;;;;;;; Working queues
@@ -878,7 +847,6 @@
 
 
 
-
 (t/deftest wq-exec
 
 
@@ -895,7 +863,6 @@
                                       (dsim/queue q-inner)))
              h)
           "Executing dynamicaly an inner queue has the same end result as nesting it in advance")))
-
 
 
 
@@ -937,7 +904,6 @@
 
 
 
-
 (t/deftest wq-sreplay
 
   (t/is (= [:out :in :in :out :out :in :in :out]
@@ -956,8 +922,6 @@
         "An inner loop within an outer one"))
 
 
-
-
 ;;;;;;;;;; Flows
 
 
@@ -968,7 +932,6 @@
   (t/is (and (not (dsim/scheduled? end))
              (not (dsim/flowing? end)))
         "Context should be stable at the end (no events + no flows)"))
-
 
 
 
@@ -990,7 +953,6 @@
           "Flow is moving through discrete time")
 
     (test-stability end)))
-
 
 
 
@@ -1049,7 +1011,6 @@
              (map :writer
                   h))
           "Respecting the timing of transitions between flows")))
-
 
 
 

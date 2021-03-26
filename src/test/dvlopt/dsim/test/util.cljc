@@ -11,8 +11,6 @@
             [dvlopt.dsim.util :as dsim.util]))
 
 
-
-
 ;;;;;;;;;; Handling trees
 
 
@@ -38,7 +36,6 @@
                                      [:a :b]
                                      :ok))
         "Should assoc when the path is shorther than an existing leaf"))
-
 
 
 

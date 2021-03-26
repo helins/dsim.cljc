@@ -27,8 +27,7 @@
                                               :cljs :refer-macros) [?]]
             [dvlopt.rktree        :as rktree]
             [dvlopt.void          :as void])
-  #?(:clj (:import (clojure.lang ExceptionInfo
-                                 PersistentQueue))))
+  #?(:clj (:import clojure.lang.PersistentQueue)))
 
 
 ;;;;;;;;;; API structure (searchable for easy navigation)
@@ -42,8 +41,6 @@
 ;; @[wq]      Relative to the currently executed queue (aka. the "working queue")
 ;; @[flows]   Creating and managing flows
 ;; @[fdat]    Serialization of whole contexts (events and flows included) via the `dvlopt.fdat` library
-
-
 
 
 ;;;;;;;;;; MAYBEDO
@@ -94,7 +91,6 @@
 
    (into (queue)
          values)))
-
 
 
 
@@ -1881,7 +1877,7 @@
    - wq-replay
    - wq-sreplay
   
-   [https://github.com/dvlopt/fdat.cljc](https://github.com/dvlopt/fdat.cljc)"
+   [https://github.com/helins/fdat.cljc](https://github.com/helins/fdat.cljc)"
 
   [-sampler
    finite

@@ -20,8 +20,6 @@
   #?(:clj (:import clojure.lang.PersistentQueue)))
 
 
-
-
 ;;;;;;;;;;
 
 
@@ -36,7 +34,6 @@
           {"queue" (transit/read-handler (fn deserialize [x]
                                            (into (dsim/queue)
                                                  x)))})))
-
 
 
 

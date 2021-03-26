@@ -8,11 +8,7 @@
   "Utilities, the user should not be bothered by this."
 
   {:author "Adam Helinski"
-   :no-doc true}
-
-  (:require [dvlopt.void :as void]))
-
-
+   :no-doc true})
 
 
 ;;;;;;;;;; Collections
@@ -42,7 +38,6 @@
 
 
 
-
 (defn assoc-shortest
 
   ;; Associates `leaf` at `path` only if `path` is shorter than the tree. 
@@ -64,7 +59,6 @@
                 path
                 leaf))
     hmap))
-
 
 
 
@@ -96,7 +90,6 @@
 ;                           v-2))))
 ;              hmap-1
 ;              hmap-2))
-
 
 
 

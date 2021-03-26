@@ -50,7 +50,8 @@ Bach](https://www.youtube.com/watch?v=Y9OUfBDIGhw&t=3212s))
 - [Async, parallelization, and optimizations problems](#parallel)
 - [Writing your own specific engine](#writing-engine)
 - [Last few words](#last-words)
-- [Run tests](#run-tests)
+- [Running tests](#tests)
+- [Development](#develop)
 
 ## Socratic rationale <a name="socratic-rationale">
 
@@ -990,52 +991,44 @@ That was probably quite a few new concepts. We hope all this information will
 grant you any benefit at all even if you do not end up using DSim.
 
 
-## Run tests <a name="run-tests">
+## Running tests <a name="tests">
 
-### Using Kaocha
-
-Run all tests (JVM and JS based ones):
+On the JVM, using [Kaocha](https://github.com/lambdaisland/kaocha):
 
 ```bash
-$ ./bin/kaocha
+$ ./bin/test/jvm/run
+$ ./bin/test/jvm/watch
 ```
-
-Due to some compilation shenaningans, testing both JS environments in the same
-run can fail.
-
-For Clojure only:
+On NodeJS, using [Kaocha-CLJS](https://github.com/lambdaisland/kaocha-cljs):
 
 ```bash
-$ ./bin/kaocha jvm
+$ ./bin/test/node/run
+$ ./bin/test/node/watch
 ```
 
-For Clojurescript on NodeJS, `ws` must be installed:
+In the browser, using [Chui](https://github.com/lambdaisland/chui):
+```
+$ ./bin/test/browser/compile
+# Then open ./resources/chui/index.html
+
+# For testing an advanced build
+$ ./bin/test/browser/advanced
+```
+
+
+## Development <a name="develop">
+
+Starting in Clojure JVM mode, mentioning an additional deps alias (here, a local
+setup of NREPL):
 ```bash
-$ npm i ws
-```
-Then:
-```
-$ ./bin/kaocha node
+$ ./bin/dev/clojure :nrepl
 ```
 
-For Clojurescript in the browser (which might need to be already running):
+Starting in CLJS mode using Shadow-CLJS:
 ```bash
-$ ./bin/kaocha browser
+$ ./bin/dev/cljs
+# Then open ./resources/public/index.html
 ```
-
-### Using Chui for browser testing
-
-For more convenient and thorough browser testing:
-
-```bash
-$ ./bin/chui $COMMAND $ARGS
-```
-
-Where `$COMMAND` is `compile`, `watch`, or `release` (for testing a build with
-advanced optimizations). When using `release`, providing `--debug` is extemely
-useful when something goes wrong (eg. names are not munged in stacktraces).
-
-When ready, open `./chui/index.html` in your favorite browser.
 
 
 ## License

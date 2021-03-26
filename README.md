@@ -3,7 +3,9 @@
 [![Clojars
 Project](https://img.shields.io/clojars/v/dvlopt/dsim.svg)](https://clojars.org/dvlopt/dsim)
 
-[![cljdoc badge](https://cljdoc.org/badge/dvlopt/dsim)](https://cljdoc.org/d/dvlopt/dsim)
+[![Cljdoc](https://cljdoc.org/badge/dvlopt/dsim)](https://cljdoc.org/d/dvlopt/dsim)
+
+![CircleCI](https://circleci.com/gh/helins/rktree.cljc.svg?style=shield)
 
 Compatible with Clojurescript.
 
